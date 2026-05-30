@@ -1,0 +1,113 @@
+name: Android CI
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout private repo
+        uses: actions/checkout@v4
+        with:
+          repository: ikunshare/kunsound
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          submodules: true
+
+      - name: Determine build type
+        id: build-type
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          if echo "$COMMIT_MSG" | grep -qi "Release"; then
+            echo "variant=release" >> "$GITHUB_OUTPUT"
+            echo "task=assembleRelease" >> "$GITHUB_OUTPUT"
+            echo "apk_path=app/build/outputs/apk/release" >> "$GITHUB_OUTPUT"
+            echo "artifact_name=KunSound-release" >> "$GITHUB_OUTPUT"
+          else
+            echo "variant=debug" >> "$GITHUB_OUTPUT"
+            echo "task=assembleDebug" >> "$GITHUB_OUTPUT"
+            echo "apk_path=app/build/outputs/apk/debug" >> "$GITHUB_OUTPUT"
+            echo "artifact_name=KunSound-debug" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'microsoft'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Install NDK & CMake
+        run: sdkmanager "ndk;28.2.13676358" "cmake;3.22.1"
+
+      - name: Decode keystore
+        if: steps.build-type.outputs.variant == 'release'
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/kunsound.jks
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build APK
+        run: ./gradlew ${{ steps.build-type.outputs.task }} --no-daemon
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          OLLVM_ENABLED: ${{ env.OLLVM_ENABLED }}
+
+      - name: Rename APK
+        run: |
+          GIT_HASH=$(git rev-parse --short HEAD)
+          VERSION_NAME=$(grep -E '^var verName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          BUILD_TYPE="${{ steps.build-type.outputs.variant }}"
+
+          cd ${{ steps.build-type.outputs.apk_path }}
+          for apk in *.apk; do
+            mv "$apk" "坤音-${BUILD_TYPE}_${VERSION_NAME}+${GIT_HASH}.apk"
+          done
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build-type.outputs.artifact_name }}
+          path: ${{ steps.build-type.outputs.apk_path }}/*.apk
+          retention-days: 30
+        continue-on-error: true
+
+      - name: Upload APK to Bucket CDN
+        id: bucket-upload
+        continue-on-error: true
+        run: |
+          APK_FILE=$(ls ${{ steps.build-type.outputs.apk_path }}/*.apk | head -1)
+          python3 .github/scripts/upload_to_bucket.py "$APK_FILE"
+
+      - name: Add download link to summary
+        if: steps.bucket-upload.outputs.cdn_url
+        run: |
+          APK_NAME=$(basename ${{ steps.build-type.outputs.apk_path }}/*.apk | head -1)
+          echo "## 📦 APK Download" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**${APK_NAME}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "🔗 [CDN 下载链接](${{ steps.bucket-upload.outputs.cdn_url }})" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish to Releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.build-type.outputs.apk_path }}/*.apk
+          generate_release_notes: true
