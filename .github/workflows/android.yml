@@ -92,6 +92,7 @@ jobs:
         id: bucket-upload
         continue-on-error: true
         run: |
+          pip install requests
           APK_FILE=$(ls ${{ steps.build-type.outputs.apk_path }}/*.apk | head -1)
           python3 .github/scripts/upload_to_bucket.py "$APK_FILE"
 
