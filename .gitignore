@@ -1,0 +1,19 @@
+# editor files
+*.iml
+.gradle
+.kotlin
+.idea/
+.DS_Store
+build/
+*/build
+*/captures
+*/release
+.externalNativeBuild
+.cxx
+local.properties
+.vscode
+
+# sign key
+*.jks
+*.keystore
+*.p12

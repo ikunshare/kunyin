@@ -1,0 +1,647 @@
+<resources>
+    <string name="app_name" translatable="false">坤音</string>
+
+    <!-- 底部导航 -->
+    <string name="nav_search">搜索</string>
+    <string name="nav_playlists">歌单</string>
+    <string name="nav_download">下载</string>
+    <string name="nav_settings">设置</string>
+
+    <!-- 通用按钮/操作 -->
+    <string name="confirm">确定</string>
+    <string name="cancel">取消</string>
+    <string name="close">关闭</string>
+    <string name="save">保存</string>
+    <string name="delete">删除</string>
+    <string name="clear">清空</string>
+    <string name="retry">重试</string>
+    <string name="back">返回</string>
+    <string name="play_all">播放全部</string>
+    <string name="select_all">全选</string>
+    <string name="cancel_selection">取消选择</string>
+    <string name="selected_count">已选 %d 首</string>
+    <string name="no_data">暂无数据</string>
+    <string name="unknown_error">未知错误</string>
+    <string name="loading">正在加载…</string>
+    <string name="import_text">导入</string>
+    <string name="create_new">新建</string>
+
+    <!-- 搜索页 -->
+    <string name="search_placeholder">搜索歌曲、歌手、专辑</string>
+    <string name="search_history">搜索历史</string>
+    <string name="hot_searches">热门搜索</string>
+    <string name="no_hot_search">暂无热搜数据</string>
+    <string name="all_results_loaded">已加载全部结果</string>
+    <string name="invalid_album_id">无效的专辑ID</string>
+    <string name="load_album_failed">加载专辑失败：%1$s</string>
+    <string name="album_company_label">发行：%1$s</string>
+    <string name="album_song_count">%1$d 首</string>
+    <string name="invalid_artist_id">无效的歌手ID</string>
+    <string name="load_artist_failed">加载歌手失败：%1$s</string>
+    <string name="artist_album_count">%1$d 张专辑</string>
+    <string name="artist_song_count">%1$d 首歌曲</string>
+    <string name="artist_fans_count">%1$s 粉丝</string>
+    <string name="artist_tab_songs">歌曲</string>
+    <string name="artist_tab_albums">专辑</string>
+    <string name="artist_tab_mvs">视频</string>
+    <string name="mv_play_count">%1$s 次播放</string>
+    <string name="switch_platform">切换平台</string>
+    <string name="clear_search">清除搜索</string>
+    <string name="added_to_playlist_count">已添加 %d 首到歌单</string>
+    <string name="created_playlist_added_count">已创建歌单并添加 %d 首</string>
+    <string name="added_to_download_queue_count">已添加 %d 首到下载队列</string>
+
+    <!-- 设置页分区标题 -->
+    <string name="section_account">平台账号登录</string>
+    <string name="section_appearance">外观</string>
+    <string name="section_playback">播放设置</string>
+    <string name="audio_focus_behavior">其他应用播放时</string>
+    <string name="audio_focus_none">共同播放</string>
+    <string name="audio_focus_duck">压低音量</string>
+    <string name="audio_focus_pause">暂停播放</string>
+    <string name="audio_duck_volume">压低至 %d%%</string>
+    <string name="pause_on_phone_call">接打电话时自动暂停</string>
+    <string name="keep_playing_on_headset_disconnect">耳机/蓝牙断开后继续播放</string>
+    <string name="keep_playing_on_headset_disconnect_desc">关闭后跟随系统行为：拔出耳机或断开蓝牙时自动暂停</string>
+    <string name="section_floating_lyrics">桌面歌词设置</string>
+    <string name="section_lyricon">歌词推送</string>
+    <string name="section_download">下载设置</string>
+    <string name="section_cache">缓存设置</string>
+    <string name="section_backup">备份与恢复</string>
+    <string name="section_sync">同步</string>
+    <string name="section_about">关于</string>
+    <string name="settings_title">设置</string>
+
+    <!-- 设置页 - 账号 -->
+    <string name="login_web">网页登录</string>
+    <string name="login_qrcode">扫码登录</string>
+    <string name="qr_loading">正在获取二维码…</string>
+    <string name="qr_scan_hint">请使用 QQ音乐 / QQ / 微信\n扫描二维码</string>
+    <string name="qr_status_scanned">已扫码，请在手机上确认</string>
+    <string name="qr_status_success">登录成功</string>
+    <string name="qr_status_timeout">二维码已过期</string>
+    <string name="qr_status_refused">已取消登录</string>
+    <string name="qr_retry">重新获取</string>
+    <string name="clear_credential">清除</string>
+    <string name="logged_in_as">已登录：%s</string>
+    <string name="not_logged_in">未登录</string>
+    <string name="relogin_confirm_title">重新登录</string>
+    <string name="relogin_confirm_message">当前已登录「%s」，是否重新登录？</string>
+    <string name="refresh_playlists">刷新歌单</string>
+    <string name="refresh_song_info">刷新歌曲信息</string>
+    <string name="refresh_song_info_success">歌曲信息已更新</string>
+    <string name="refresh_song_info_failed">刷新失败</string>
+
+    <!-- 设置页 - 外观 -->
+    <string name="theme_mode">主题模式</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_dark">深色</string>
+    <string name="theme_light">浅色</string>
+    <string name="new_custom_theme">新建自定义主题</string>
+    <string name="theme_name_hint">输入主题名称</string>
+    <string name="rename_theme">重命名</string>
+    <string name="delete_theme">删除主题</string>
+    <string name="delete_theme_confirm">确定删除主题「%s」吗？</string>
+    <string name="theme_share_copied">主题分享码已复制到剪切板</string>
+    <string name="theme_share_failed">分享失败: %s</string>
+    <string name="import_theme">导入主题</string>
+    <string name="import_theme_hint">从分享码导入</string>
+    <string name="import_theme_desc">粘贴其他用户分享的主题码</string>
+    <string name="import_theme_label">主题分享码</string>
+    <string name="import_theme_invalid">无效的主题分享码</string>
+    <string name="import_theme_success">主题导入成功</string>
+    <string name="imported_theme_name">导入的主题</string>
+    <string name="system_light_theme">浅色时使用</string>
+    <string name="system_dark_theme">深色时使用</string>
+    <string name="edit_colors">编辑颜色</string>
+    <string name="custom_color">自定义颜色</string>
+    <string name="click_to_edit">点击编辑</string>
+    <string name="custom_bg_image">自定义背景图</string>
+    <string name="bg_set">已设置</string>
+    <string name="bg_not_set">未设置</string>
+    <string name="cover_blur_bg">详情页封面背景</string>
+    <string name="floating_bottom_bar">悬浮底栏</string>
+    <string name="enable_liquid_glass">启用液态玻璃</string>
+    <string name="language_label">语言</string>
+    <string name="language_system">跟随系统</string>
+    <string name="language_zh_cn">简体中文</string>
+    <string name="language_zh_tw">繁體中文</string>
+
+    <!-- 设置页 - 播放 -->
+    <string name="show_translation">展示歌词翻译</string>
+    <string name="show_romanization">展示歌词音译</string>
+    <string name="show_phonetic">展示 AI 谐音</string>
+    <string name="hide_ai_qualities">屏蔽 AI 音质</string>
+    <string name="auto_play_on_restart">启动后自动播放</string>
+    <string name="default_quality">默认播放音质</string>
+
+    <!-- 设置页 - 桌面歌词 -->
+    <string name="enable_floating_lyrics">启用桌面歌词</string>
+    <string name="floating_lyrics_need_permission">需要悬浮窗权限才能显示桌面歌词</string>
+    <string name="floating_lyrics_custom_action">桌面歌词</string>
+    <string name="floating_karaoke">渲染逐字歌词</string>
+    <string name="floating_translation">显示翻译歌词</string>
+    <string name="floating_romanization">显示音译歌词</string>
+    <string name="lock_lyrics">锁定歌词</string>
+    <string name="lock_lyrics_hint">锁定后歌词触摸穿透，需在此处关闭锁定</string>
+    <string name="hide_when_not_playing">未播放时隐藏</string>
+    <string name="alignment">对齐方式</string>
+    <string name="align_left">左对齐</string>
+    <string name="align_center">居中</string>
+    <string name="align_right">右对齐</string>
+    <string name="floating_width">浮窗宽度: %d%%</string>
+    <string name="floating_max_lines">最大行数: %d</string>
+    <string name="played_color">已播放颜色</string>
+    <string name="unplayed_color">未播放颜色</string>
+    <string name="floating_sub_color">翻译/音译颜色</string>
+    <string name="floating_bg_opacity">窗口不透明度: %d%%</string>
+    <string name="select_color">选择颜色</string>
+    <string name="preset_colors">预设颜色</string>
+    <string name="custom_color_input">自定义颜色</string>
+
+    <!-- 设置页 - 下载 -->
+    <string name="download_path">下载路径</string>
+    <string name="path_hint">路径（留空使用默认）</string>
+    <string name="select_directory">选择目录</string>
+    <string name="select_file">选择文件</string>
+    <string name="folder_unreadable">无法读取此目录</string>
+    <string name="folder_empty">空文件夹</string>
+    <string name="no_matching_files">无可选文件</string>
+    <string name="storage_permission_required">需要存储权限才能访问该位置</string>
+    <string name="max_concurrent_downloads">最大同时下载数</string>
+    <string name="naming_style">文件命名方式</string>
+    <string name="overwrite_existing">覆盖同名文件</string>
+    <string name="write_lyrics_meta">写入歌词到 metadata</string>
+    <string name="download_lrc">下载 .lrc 文件</string>
+    <string name="write_char_lyrics">写入逐字歌词</string>
+    <string name="write_translation_lyrics">写入翻译歌词</string>
+    <string name="write_romanization_lyrics">写入音译歌词</string>
+    <string name="write_char_romanization">写入逐字音译歌词</string>
+    <string name="lrc_interludes">在间奏处增加空行</string>
+    <string name="naming_artist_title">歌手 - 歌名</string>
+    <string name="naming_title_artist">歌名 - 歌手</string>
+    <string name="naming_title_only">歌名</string>
+
+    <!-- 设置页 - 第三方解析 -->
+
+    <!-- 设置页 - 缓存 -->
+    <string name="max_cache_size">最大缓存大小</string>
+    <string name="unlimited">无限制</string>
+    <string name="cache_disabled">禁用</string>
+    <string name="audio_cache">资源缓存</string>
+    <string name="cache_count">%d 条</string>
+    <string name="lyrics_cache">歌词缓存</string>
+    <string name="media_info_cache">播放链接缓存</string>
+    <string name="clear_all_caches">清空所有缓存</string>
+    <string name="clear_all_caches_confirm">确定要清空所有缓存（资源、歌词、播放链接）吗？</string>
+    <string name="webview_data">WebView 数据</string>
+    <string name="cookie_cache">Cookie/缓存</string>
+    <string name="clear_webview_data">清除 WebView 数据</string>
+    <string name="clear_webview_confirm">将清除 WebView 的所有 Cookie、缓存和存储数据。已登录的 WebView 账号将失效。</string>
+
+    <!-- 设置页 - 关于 -->
+    <string name="app_icon">应用图标</string>
+    <string name="version_info">版本: %s</string>
+    <string name="checking">正在检查…</string>
+    <string name="check_update">检查更新</string>
+    <string name="already_latest">已是最新版本</string>
+    <string name="fetching">正在获取…</string>
+    <string name="view_notice">查看公告</string>
+    <string name="no_notice">暂无公告</string>
+    <string name="join_qq_group">加入 QQ 群</string>
+    <string name="join_telegram_group">加入 Telegram 群组</string>
+    <string name="follow_telegram_channel">关注 Telegram 频道</string>
+
+    <!-- 设置页 - 背景设置对话框 -->
+    <string name="bg_preview">背景图预览</string>
+    <string name="no_bg_image">未设置背景图</string>
+    <string name="select_image">选择图片</string>
+    <string name="clear_image">清除图片</string>
+    <string name="use_on_player">在播放详情页使用</string>
+    <string name="bg_opacity">背景色不透明度: %d%%</string>
+    <string name="bottom_bar_opacity">底栏不透明度: %d%%</string>
+
+    <!-- 下载页 - 分类 -->
+    <string name="cat_all">全部任务</string>
+    <string name="cat_completed">已完成</string>
+    <string name="cat_downloading">正在下载</string>
+    <string name="cat_waiting">等待下载</string>
+    <string name="cat_failed">下载失败</string>
+    <string name="cat_paused">已暂停</string>
+
+    <!-- 下载页 - 内容 -->
+    <string name="download_title">下载</string>
+    <string name="empty_all">暂无下载任务</string>
+    <string name="empty_completed">暂无已完成的任务</string>
+    <string name="empty_downloading">暂无正在下载的任务</string>
+    <string name="empty_waiting">暂无等待下载的任务</string>
+    <string name="empty_paused">暂无已暂停的任务</string>
+    <string name="empty_failed">暂无失败的任务</string>
+    <string name="task_count">%d 个任务</string>
+    <string name="pause_all">全部暂停</string>
+    <string name="resume_all">全部开始</string>
+    <string name="clear_all_completed">全部清除</string>
+    <string name="retry_all_failed">全部重试</string>
+    <string name="clear_completed_title">清除已完成任务</string>
+    <string name="clear_completed_confirm">您确定要清除全部已完成的下载任务吗？该操作不会删除已下载的文件。</string>
+    <string name="status_waiting">等待中</string>
+    <string name="status_paused">已暂停</string>
+    <string name="status_completed">已完成</string>
+    <string name="status_failed">失败</string>
+    <string name="action_pause">暂停</string>
+    <string name="action_resume">继续</string>
+    <string name="action_retry">重试</string>
+    <string name="cancel_download">取消下载</string>
+    <string name="delete_record">删除记录</string>
+    <string name="delete_record_and_file">删除记录和文件</string>
+
+    <!-- 播放器页 -->
+    <string name="share">分享</string>
+    <string name="share_song">分享歌曲</string>
+    <string name="previous">上一首</string>
+    <string name="next">下一首</string>
+    <string name="pause">暂停</string>
+    <string name="play">播放</string>
+    <string name="added_to_download">已添加到下载队列</string>
+    <string name="download_failed_msg">添加下载失败: %s</string>
+    <string name="storage_permission_needed">需要存储权限才能下载</string>
+    <string name="file_access_permission">请授权文件访问权限后重试</string>
+    <string name="song_info_not_loaded">歌曲信息未加载</string>
+    <string name="play_sequential">顺序播放</string>
+    <string name="play_list_loop">列表循环</string>
+    <string name="play_shuffle">随机播放</string>
+    <string name="play_single_loop">单曲循环</string>
+    <string name="play_single_play">单曲播放</string>
+    <string name="unfavorite">取消收藏</string>
+    <string name="favorite">收藏</string>
+    <string name="stop_and_exit_app">停止并退出</string>
+    <string name="add_to_playlist">添加到歌单</string>
+    <string name="download">下载</string>
+    <string name="play_song">播放</string>
+    <string name="play_next">稍后播放</string>
+    <string name="multi_select">多选</string>
+    <string name="added_to_play_next">已添加到稍后播放</string>
+    <string name="added_to_play_next_count">已添加 %d 首到稍后播放</string>
+    <string name="delete_song_confirm">确定要%1$s「%2$s」吗？</string>
+    <string name="reorder">调整顺序</string>
+    <string name="reorder_title">调整歌曲顺序</string>
+    <string name="current_position">当前位置: %1$d / 共 %2$d 首</string>
+    <string name="new_position_hint">输入新位置 (1-%d)</string>
+    <string name="reordered_success">已移动到第 %d 位</string>
+    <string name="quality_select">音质选择</string>
+    <string name="volume">音量</string>
+    <string name="play_queue">播放列表</string>
+    <string name="play_queue_title">当前播放列表</string>
+    <string name="clear_main_queue">清空主队列</string>
+    <string name="clear_main_queue_confirm">确定要清空播放列表吗？</string>
+    <string name="view_mv">查看MV</string>
+    <string name="mv_no_quality">该歌曲没有可用的MV</string>
+    <string name="mv_loading">正在加载MV信息...</string>
+    <string name="mv_select_quality">选择MV清晰度</string>
+    <string name="mv_download_added">已添加到下载列表</string>
+    <string name="mv_play_failed">MV播放地址获取失败</string>
+    <string name="mv_change_quality">切换清晰度</string>
+    <string name="mv_quality_switching">正在切换清晰度…</string>
+    <string name="mv_pip">小窗播放</string>
+    <string name="clear_play_next_queue">清空稍后播放</string>
+    <string name="play_next_queue">稍后播放</string>
+    <string name="play_next_queue_count">稍后播放 (%d)</string>
+    <string name="now_playing">正在播放</string>
+    <string name="no_cover">无封面</string>
+    <string name="album_cover">专辑封面</string>
+    <string name="hide_translation">隐藏翻译</string>
+    <string name="show_translation_btn">显示翻译</string>
+    <string name="hide_romanization">隐藏音译</string>
+    <string name="show_romanization_btn">显示音译</string>
+    <string name="no_lyrics">暂无歌词</string>
+
+    <!-- 歌单页 -->
+    <string name="playlists_title">歌单</string>
+    <string name="favorite_songs">收藏的歌曲</string>
+    <string name="backup_trial_list">试听列表</string>
+    <string name="recent_plays">最近播放</string>
+    <string name="trial_list_add_to_head">点搜索结果时插入到试听列表开头</string>
+    <string name="auto_open_player_on_song_click">点歌后自动进入播放页</string>
+    <string name="update_browser_url_empty">下载链接为空，无法打开浏览器</string>
+    <string name="update_browser_no_app">未找到可处理该链接的应用</string>
+    <string name="create_playlist">新建歌单</string>
+    <string name="import_playlist">导入歌单</string>
+    <string name="song_count">%d 首歌曲</string>
+    <string name="delete_playlist_title">删除歌单</string>
+    <string name="delete_playlist_confirm">确定要删除歌单「%s」吗？此操作不可恢复。</string>
+    <string name="create_local_copy">创建本地副本</string>
+    <string name="copy_playlist_confirm">将「%s」的所有歌曲复制到本地歌单？此操作会创建一个新的本地歌单。</string>
+    <string name="create_btn">创建</string>
+    <string name="empty_favorites">还没有收藏的歌曲</string>
+    <string name="empty_recent">还没有播放记录</string>
+    <string name="empty_playlist">歌单中还没有歌曲</string>
+    <string name="import_playlist_title">导入歌单</string>
+    <string name="select_platform">选择平台</string>
+    <string name="platform_label">平台：%s</string>
+    <string name="share_link_or_id">分享链接或歌单ID</string>
+    <string name="import_btn">导入</string>
+    <string name="unfavorited_count">已取消收藏 %d 首</string>
+    <string name="removed_from_playlist_count">已从歌单删除 %d 首</string>
+    <string name="unknown_playlist">未知歌单</string>
+    <string name="refreshing_platform">正在刷新%s…</string>
+    <string name="remove_from_playlist">从歌单删除</string>
+
+    <!-- 歌单详情页 -->
+    <string name="playlist_no_songs">歌单暂无歌曲</string>
+    <string name="all_songs_loaded">已加载全部歌曲</string>
+    <string name="total_songs">共 %d 首</string>
+    <string name="playlist_cover">歌单封面</string>
+    <string name="skipped_local_songs_toast">该歌单包含未被匹配的本地歌曲，软件无法处理这些歌曲，将会忽略它们。您所看到的歌曲将比歌单实际内容少</string>
+
+    <!-- 本地歌单页 -->
+    <string name="import_songs">导入歌曲</string>
+    <string name="select_import_platform">选择导入平台</string>
+    <string name="not_available">暂不可用</string>
+    <string name="import_platform_songs">导入 %s 歌曲</string>
+    <string name="input_qq_id">输入歌曲 ID（纯数字）或 Mid</string>
+    <string name="input_netease_id">输入歌曲 ID（纯数字）</string>
+    <string name="input_song_id">输入歌曲 ID</string>
+    <string name="importing">正在导入…</string>
+    <string name="imported_song">已导入: %s</string>
+    <string name="import_failed">导入失败，请检查 ID 是否正确</string>
+
+    <!-- 下载音质对话框 -->
+    <string name="select_download_quality">选择下载音质</string>
+    <string name="quality_auto_downgrade">若歌曲无此音质将自动降级</string>
+    <string name="download_btn">下载</string>
+
+    <!-- 公告对话框 -->
+    <string name="notice_title">公告</string>
+    <string name="i_understand">我知道了</string>
+
+    <!-- 添加到歌单对话框 -->
+    <string name="favorite_songs_added">收藏的歌曲 (已收藏)</string>
+    <string name="song_count_short">%d 首</string>
+
+    <!-- 新建歌单对话框 -->
+    <string name="create_playlist_title">新建歌单</string>
+    <string name="playlist_name">歌单名称</string>
+
+    <!-- 选择底栏 -->
+    <string name="selected_count_songs">已选 %d 首</string>
+
+    <!-- 更新对话框 -->
+    <string name="new_version_found">发现新版本 v%s</string>
+    <string name="download_failed_retry">下载失败，请重试或使用浏览器下载</string>
+    <string name="exit_app">退出</string>
+    <string name="skip_version">不再提示此版本</string>
+    <string name="update_btn">更新</string>
+    <string name="browser_update">浏览器更新</string>
+
+    <!-- 颜色选择器 -->
+    <string name="color_new">新</string>
+    <string name="color_old">原</string>
+
+    <!-- 预设颜色名 -->
+    <string name="color_green">绿色</string>
+    <string name="color_white">白色</string>
+    <string name="color_orange_red">橙红</string>
+    <string name="color_blue">蓝色</string>
+    <string name="color_yellow">黄色</string>
+    <string name="color_pink">粉红</string>
+    <string name="color_purple">紫色</string>
+    <string name="color_cyan">青色</string>
+    <string name="color_red">红色</string>
+    <string name="color_light_green">浅绿</string>
+
+    <!-- 迷你播放器 -->
+    <string name="previous_track">上一曲</string>
+    <string name="next_track">下一曲</string>
+
+    <!-- 歌词页 -->
+    <string name="lyrics_title">歌词</string>
+    <string name="lyrics_copied">已复制歌词</string>
+
+    <!-- 错误信息 -->
+    <string name="network_error">网络连接失败，请检查网络设置</string>
+    <string name="load_lyrics_failed">加载歌词失败: %s</string>
+    <string name="play_error_reload">播放出错，尝试重新加载: %s</string>
+    <string name="play_error">播放出错: %s</string>
+    <string name="song_not_found">歌曲未找到，请先添加到播放列表</string>
+    <string name="no_quality_available">没有可用的音质选项</string>
+    <string name="cannot_get_play_url">无法获取播放地址</string>
+    <string name="load_failed">加载失败: %s</string>
+    <string name="load_song_failed">加载歌曲失败: %s</string>
+    <string name="play_interrupted">播放中断，请重试</string>
+    <string name="load_playlist_failed">加载歌单失败: %s</string>
+    <string name="load_more_failed">加载更多失败: %s</string>
+    <string name="load_hot_search_failed">加载热搜失败: %s</string>
+    <string name="search_failed">搜索失败: %s</string>
+    <string name="import_playlist_result">已导入「%1$s」，共 %2$d 首歌曲</string>
+    <string name="import_playlist_failed">导入失败: %s</string>
+    <string name="create_local_copy_result">已创建本地副本「%1$s」，共 %2$d 首</string>
+    <string name="create_copy_failed">创建副本失败: %s</string>
+
+    <!-- 登录 -->
+    <string name="finish_login">完成登录</string>
+    <!-- 主题颜色编辑器 -->
+    <string name="base_colors">基础颜色</string>
+    <string name="color_primary">主色</string>
+    <string name="color_secondary">次要色</string>
+    <string name="color_accent">强调色</string>
+    <string name="color_background">背景色</string>
+    <string name="color_surface">表面色</string>
+    <string name="color_surface_variant">表面变体色</string>
+    <string name="color_on_background">主文字色</string>
+    <string name="color_on_surface_variant">次要文字色</string>
+    <string name="color_error">错误色</string>
+    <string name="color_outline">边框色</string>
+    <string name="lyrics_colors">歌词颜色</string>
+    <string name="lyrics_played_inactive">已播放歌词（不活跃）</string>
+    <string name="lyrics_unplayed_inactive">未播放歌词（不活跃）</string>
+    <string name="lyrics_played_active">已播放歌词（活跃）</string>
+    <string name="lyrics_unplayed_active">未播放歌词（活跃）</string>
+    <string name="lyrics_line_highlight">歌词行高亮</string>
+    <string name="ui_colors">界面颜色</string>
+    <string name="selection_highlight">选择高亮</string>
+    <string name="bottom_bar_search_bar">底栏/搜索栏</string>
+    <string name="song_card">歌曲卡片</string>
+    <string name="dialog_background">弹窗背景</string>
+    <string name="other">其他</string>
+    <string name="inactive_lyrics_opacity">非活跃歌词透明度: %d%%</string>
+    <string name="reset_to_default">重置为默认</string>
+
+    <!-- 设置页 - 备份与恢复 -->
+    <string name="backup_full">完整备份</string>
+    <string name="backup_full_desc">主题、歌单、收藏、搜索历史</string>
+    <string name="backup_playlists">导出歌单</string>
+    <string name="backup_playlists_desc">选择要导出的歌单和收藏</string>
+    <string name="backup_restore">从文件恢复</string>
+    <string name="backup_restore_desc">从备份文件恢复数据</string>
+    <string name="backup_export_success">备份已导出</string>
+    <string name="backup_export_success_path">备份已导出至: %s</string>
+    <string name="backup_export_failed">导出失败: %s</string>
+    <string name="backup_invalid_file">无效的备份文件</string>
+    <string name="backup_restore_title">恢复备份</string>
+    <string name="backup_type_full">完整备份</string>
+    <string name="backup_type_playlists">歌单备份</string>
+    <string name="backup_restore_settings">恢复设置（覆盖当前）</string>
+    <string name="backup_restore_themes">恢复自定义主题（合并）</string>
+    <string name="backup_restore_history">恢复搜索历史（合并）</string>
+    <string name="backup_restore_playlists">恢复歌单与收藏（合并）</string>
+    <string name="backup_restore_btn">恢复</string>
+    <string name="backup_restore_success">恢复完成</string>
+    <string name="backup_restore_failed">恢复失败</string>
+    <string name="backup_songs_skipped">%d 首歌曲因格式不兼容被跳过</string>
+    <string name="backup_select_playlists">选择要导出的歌单</string>
+    <string name="backup_export_btn">导出</string>
+    <string name="backup_settings_item">设置</string>
+    <string name="backup_themes_unit">个主题</string>
+    <string name="backup_favorites_unit">首收藏</string>
+    <string name="backup_playlists_unit">个歌单</string>
+
+    <!-- LX Music 导入 -->
+    <string name="backup_import_lx">导入 LX Music 歌单</string>
+    <string name="backup_import_lx_desc">支持 .lxmc / JSON，试听列表与我的收藏自动合并</string>
+    <string name="backup_lx_invalid">不是有效的 LX Music 文件</string>
+    <string name="backup_lx_preview_title">导入 LX Music 歌单</string>
+    <string name="backup_lx_import_btn">导入</string>
+    <string name="backup_lx_summary">共 %1$d 首歌曲，%2$d 个歌单</string>
+    <string name="backup_lx_result">导入完成：新增 %1$d 首，跳过 %2$d 首</string>
+
+    <!-- LX Music 同步 -->
+    <string name="sync_title">LX Music 同步</string>
+    <string name="sync_desc">连接 LX Music 同步服务器，将试听列表 / 我的收藏 / 自定义歌单与其他设备保持一致</string>
+    <string name="sync_server">服务器地址</string>
+    <string name="sync_server_hint">例如 192.168.1.20:23333 或 https://sync.example.com</string>
+    <string name="sync_cdk">CDK</string>
+    <string name="sync_cdk_hint">服务器配置中的访问密钥</string>
+    <string name="sync_device_name">本机名称</string>
+    <string name="sync_mode">同步模式</string>
+    <string name="sync_mode_merge_local_remote">合并（本地优先）</string>
+    <string name="sync_mode_merge_remote_local">合并（远端优先）</string>
+    <string name="sync_mode_overwrite_local_remote">用本地覆盖远端</string>
+    <string name="sync_mode_overwrite_remote_local">用远端覆盖本地</string>
+    <string name="sync_auto_connect">启动时自动连接</string>
+    <string name="sync_action_connect">连接</string>
+    <string name="sync_action_disconnect">断开</string>
+    <string name="sync_action_reset">重置会话</string>
+    <string name="sync_status_idle">未连接</string>
+    <string name="sync_status_connecting">连接中…</string>
+    <string name="sync_status_syncing">同步中…</string>
+    <string name="sync_status_connected">已连接</string>
+    <string name="sync_status_failed">连接失败：%1$s</string>
+    <string name="sync_required_fields">请填写服务器地址与 CDK</string>
+    <string name="sync_notification_channel">LX Music 同步</string>
+    <string name="sync_notification_title">同步运行中</string>
+    <string name="sync_notification_content">正与 LX Music 同步服务器保持连接</string>
+    <string name="sync_battery_action">关闭电池优化</string>
+    <string name="sync_battery_desc">允许应用在后台保持联网，避免同步被系统挂起</string>
+    <string name="sync_battery_already">已加入电池优化白名单</string>
+    <string name="sync_battery_unsupported">当前系统不支持此操作</string>
+
+    <!-- Lyricon -->
+    <string name="push_lyrics_to_media_session">推送歌词到MediaSession</string>
+    <string name="push_lyrics_to_media_session_desc">启用后支持蓝牙推送车载歌词，但请注意专心驾驶。</string>
+    <string name="push_meizu_status_bar_lyrics">推送魅族状态栏歌词</string>
+    <string name="push_meizu_status_bar_lyrics_desc">仅支持部分魅族手机。</string>
+    <string name="lyricon_enable">启用词幕歌词推送</string>
+    <string name="lyricon_enable_desc">注册为词幕提供者，需要安装该模块</string>
+    <string name="lyricon_sub_line">词幕副行内容</string>
+    <string name="push_lyrics_sub_line">推送副行内容</string>
+    <string name="push_lyrics_sub_line_desc">选择推送到 MediaSession/状态栏的副行内容</string>
+    <string name="sub_line_none">不显示</string>
+    <string name="sub_line_translation">翻译</string>
+    <string name="sub_line_romanization">音译</string>
+
+    <!-- 定时停止 -->
+    <string name="sleep_timer">定时停止</string>
+    <string name="sleep_timer_by_time">按时间</string>
+    <string name="sleep_timer_by_songs">按歌曲数</string>
+    <string name="sleep_timer_minutes">%d 分钟</string>
+    <string name="sleep_timer_songs">%d 首</string>
+    <string name="sleep_timer_custom_minutes">自定义（分钟）</string>
+    <string name="sleep_timer_custom_songs">自定义（首数）</string>
+    <string name="sleep_timer_finish_current">当前歌曲播完再停止</string>
+    <string name="sleep_timer_action_pause">暂停播放</string>
+    <string name="sleep_timer_action_exit">退出应用</string>
+    <string name="sleep_timer_remaining_time">剩余 %1$d:%2$02d</string>
+    <string name="sleep_timer_remaining_songs">剩余 %d 首</string>
+    <string name="sleep_timer_waiting_song_end">等待当前歌曲播完…</string>
+    <string name="sleep_timer_cancel">取消定时</string>
+    <string name="sleep_timer_set">设置</string>
+    <string name="sleep_timer_active">定时停止已开启</string>
+
+    <!-- 歌词字号 -->
+    <string name="lyrics_font_size">歌词字号 %d</string>
+    <string name="lyrics_trans_font_size">翻译字号 %d</string>
+    <string name="floating_lyrics_font_size">主歌词字号 %d</string>
+    <string name="floating_lyrics_sub_font_size">翻译字号 %d</string>
+
+    <!-- 播放速度 -->
+
+    <!-- 下载通知 -->
+    <string name="download_notification_channel">下载服务</string>
+    <string name="download_notification_title">正在下载</string>
+    <string name="download_notification_content">%1$d 首下载中，%2$d 首等待中</string>
+
+    <!-- EULA -->
+    <string name="eula_title">用户协议</string>
+    <string name="eula_agree">同意</string>
+    <string name="eula_disagree">不同意</string>
+    <string name="eula_scroll_hint">请阅读完整协议后再操作</string>
+
+    <!-- 激活（卡密） -->
+    <string name="activation_title">激活</string>
+    <string name="activation_message">本应用需输入卡密激活后使用，请填写您的卡密</string>
+    <string name="activation_input_label">请输入卡密</string>
+    <string name="activation_confirm">激活</string>
+    <string name="activation_checking">正在校验，请稍候…</string>
+    <string name="activation_input_empty">请先输入卡密</string>
+    <string name="activation_validating">校验中…</string>
+    <string name="activated">已激活</string>
+
+    <!-- 歌词/封面重定向 -->
+    <string name="redirect_song_title">重定向歌词/封面</string>
+    <string name="redirect_song_message">把这首歌的歌词与封面来源指向其他平台的歌曲。</string>
+    <string name="redirect_platform">平台</string>
+    <string name="redirect_id_qq">QQ 音乐 SongID</string>
+    <string name="redirect_mid_qq">QQ 音乐 SongMid</string>
+    <string name="redirect_id_wy">网易云歌曲 ID</string>
+    <string name="redirect_id_kw">酷我歌曲 ID</string>
+    <string name="redirect_hash_kg">酷狗歌曲 Hash</string>
+    <string name="redirect_kg_keyword">搜索关键词（歌手 - 标题）</string>
+    <string name="redirect_kg_lyric_hint">酷狗按关键词搜索歌词，从下方候选中挑选一条（仅重定向歌词）。</string>
+    <string name="redirect_kg_pick_candidate">选择歌词版本</string>
+    <string name="redirect_id_or_mid">使用 ID</string>
+    <string name="redirect_use_mid">使用 Mid</string>
+    <string name="redirect_lookup">查询</string>
+    <string name="redirect_looking_up">查询中…</string>
+    <string name="redirect_lookup_failed">未找到对应的歌曲</string>
+    <string name="redirect_clear">清除重定向</string>
+    <string name="redirect_save">保存重定向</string>
+    <string name="redirect_save_success">已设置重定向</string>
+    <string name="redirect_clear_success">已清除重定向</string>
+    <string name="redirect_input_empty">请先输入查询条件</string>
+    <string name="redirect_current_target">当前重定向：%1$s - %2$s</string>
+
+    <!-- 专辑相关 -->
+    <string name="saving_album_as_playlist">正在保存专辑…</string>
+    <string name="saved_album_as_playlist">已保存为本地歌单 (%d 首)</string>
+    <string name="save_album_failed">保存失败：%s</string>
+    <string name="download_entire_album">下载整张专辑</string>
+    <string name="save_as_local_playlist">保存为本地歌单</string>
+    <string name="download_track_number">文件名带音轨号</string>
+    <string name="download_album_folder_with_year">整专文件夹名加年份（年份 艺人 - 专辑名）</string>
+    <string name="download_album_cover">整专单独保存封面文件（cover）</string>
+    <string name="download_sample_rate_tag">文件名追加采样率（[16Bit-44.1kHz]，仅无损）</string>
+    <!-- 字体设置 -->
+    <string name="section_font">字体</string>
+    <string name="global_font_scale">全局字号缩放 %d%%</string>
+    <string name="global_font_weight">全局字重</string>
+    <string name="font_weight_light">细体</string>
+    <string name="font_weight_regular">标准</string>
+    <string name="font_weight_bold">加粗</string>
+    <string name="font_lyrics_section">歌词字体</string>
+    <string name="lyrics_font_weight">歌词字重</string>
+    <string name="lyrics_weight_normal">常规</string>
+    <string name="lyrics_weight_medium">中等</string>
+    <string name="lyrics_weight_semibold">半粗</string>
+    <string name="lyrics_weight_bold">加粗</string>
+    <string name="lyrics_weight_black">特粗</string>
+</resources>
