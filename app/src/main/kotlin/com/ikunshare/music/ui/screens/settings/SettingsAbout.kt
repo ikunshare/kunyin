@@ -276,7 +276,7 @@ internal fun AboutSection() {
             modifier = Modifier.weight(1f)
         ) {
             try {
-                val key = "A2alOAv2htz2-egCuBfk7nWY5e05K22A"
+                val key = "8gC7METzZp5ljd0Fu3yAgb7JrIxiw5l5"
                 val qqIntent = Intent(
                     Intent.ACTION_VIEW,
                     "mqqopensdkapi://bizAgent/qm/qr?url=http%3A%2F%2Fqm.qq.com%2Fcgi-bin%2Fqm%2Fqr%3Ffrom%3Dapp%26p%3Dandroid%26jump_from%3Dwebapi%26k%3D$key".toUri()
@@ -285,7 +285,7 @@ internal fun AboutSection() {
             } catch (_: Exception) {
                 val browserIntent = Intent(
                     Intent.ACTION_VIEW,
-                    "https://qm.qq.com/cgi-bin/qm/qr?k=NZXI7sTKBUJewXFD0O5iRtHrtN2sHaOs&jump_from=webapi&authKey=1jOita0a4w2N4x71MSV86VfiU3xhyZibVJ4SCgoIaGtTtO+jkCW9He9VzNfJeWz4".toUri()
+                    "https://qm.qq.com/cgi-bin/qm/qr?k=HeWml0DNCYF50yU7HamEtutFSY1UiGTe&jump_from=webapi&authKey=XZTMtxHqA//64Gtjh21k0pDEc40OZSkhl8WWVpcOQtxowGywaZqM0OBaEmy9a+rN".toUri()
                 )
                 context.startActivity(browserIntent)
             }
