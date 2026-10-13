@@ -309,7 +309,7 @@ static int hex_val(char c) {
 extern "C" {
 
 JNIEXPORT jstring JNICALL
-Java_com_ikunshare_sound_utils_lyric_LrcNative_decryptKrc(JNIEnv *env, jclass, jbyteArray data) {
+Java_com_ikunshare_music_utils_lyric_LrcNative_decryptKrc(JNIEnv *env, jclass, jbyteArray data) {
     jsize len = env->GetArrayLength(data);
     if (len <= 4) return env->NewStringUTF("");
 
@@ -343,7 +343,7 @@ Java_com_ikunshare_sound_utils_lyric_LrcNative_decryptKrc(JNIEnv *env, jclass, j
 }
 
 JNIEXPORT jbyteArray JNICALL
-Java_com_ikunshare_sound_utils_lyric_LrcNative_decryptKuwo(JNIEnv *env, jclass, jbyteArray data) {
+Java_com_ikunshare_music_utils_lyric_LrcNative_decryptKuwo(JNIEnv *env, jclass, jbyteArray data) {
     jsize len = env->GetArrayLength(data);
     jbyte *buf = env->GetByteArrayElements(data, nullptr);
     uint8_t *u_buf = (uint8_t *) buf;
@@ -386,7 +386,7 @@ Java_com_ikunshare_sound_utils_lyric_LrcNative_decryptKuwo(JNIEnv *env, jclass, 
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_ikunshare_sound_utils_lyric_LrcNative_buildKuwoParams(JNIEnv *env, jclass,
+Java_com_ikunshare_music_utils_lyric_LrcNative_buildKuwoParams(JNIEnv *env, jclass,
                                                                jstring musicId) {
     const char *mId = env->GetStringUTFChars(musicId, nullptr);
     size_t id_len = strlen(mId);
@@ -419,7 +419,7 @@ Java_com_ikunshare_sound_utils_lyric_LrcNative_buildKuwoParams(JNIEnv *env, jcla
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_ikunshare_sound_utils_lyric_LrcNative_decryptQrc(JNIEnv *env, jclass, jstring hexData) {
+Java_com_ikunshare_music_utils_lyric_LrcNative_decryptQrc(JNIEnv *env, jclass, jstring hexData) {
     if (!hexData) return env->NewStringUTF("");
     const char *hex = env->GetStringUTFChars(hexData, nullptr);
     size_t hex_len = strlen(hex);

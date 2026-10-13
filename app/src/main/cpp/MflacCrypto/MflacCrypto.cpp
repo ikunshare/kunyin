@@ -329,7 +329,7 @@ static jlong create_cipher(uint8_t *key, int keyLen) {
 extern "C" {
 
 JNIEXPORT jlong JNICALL
-Java_com_ikunshare_sound_utils_crypto_MflacCrypto_nativeInit(JNIEnv *env, jobject,
+Java_com_ikunshare_music_utils_crypto_MflacCrypto_nativeInit(JNIEnv *env, jobject,
                                                              jbyteArray ekeyArr) {
     jsize ekeyLen = env->GetArrayLength(ekeyArr);
     if (ekeyLen < 12) return 0;
@@ -347,7 +347,7 @@ Java_com_ikunshare_sound_utils_crypto_MflacCrypto_nativeInit(JNIEnv *env, jobjec
 }
 
 JNIEXPORT void JNICALL
-Java_com_ikunshare_sound_utils_crypto_MflacCrypto_nativeRelease(JNIEnv *, jobject, jlong handle) {
+Java_com_ikunshare_music_utils_crypto_MflacCrypto_nativeRelease(JNIEnv *, jobject, jlong handle) {
     auto *ctx = (MflacCtx *) handle;
     if (ctx) {
         if (ctx->type == CIPHER_RC4 && ctx->rc4.key) free(ctx->rc4.key);
@@ -356,7 +356,7 @@ Java_com_ikunshare_sound_utils_crypto_MflacCrypto_nativeRelease(JNIEnv *, jobjec
 }
 
 JNIEXPORT jbyteArray JNICALL
-Java_com_ikunshare_sound_utils_crypto_MflacCrypto_nativeDecryptChunk(JNIEnv *env, jobject,
+Java_com_ikunshare_music_utils_crypto_MflacCrypto_nativeDecryptChunk(JNIEnv *env, jobject,
                                                                      jlong handle,
                                                                      jbyteArray src, jlong offset) {
     auto *ctx = (MflacCtx *) handle;
