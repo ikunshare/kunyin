@@ -206,7 +206,6 @@
     <string name="view_notice">查看公告</string>
     <string name="no_notice">暂无公告</string>
     <string name="join_qq_group">加入 QQ 群</string>
-    <string name="join_telegram_group">加入 Telegram 群组</string>
     <string name="follow_telegram_channel">关注 Telegram 频道</string>
 
     <!-- 设置页 - 背景设置对话框 -->
@@ -524,13 +523,6 @@
     <string name="sync_status_connected">已连接</string>
     <string name="sync_status_failed">连接失败：%1$s</string>
     <string name="sync_required_fields">请填写服务器地址与 CDK</string>
-    <string name="sync_notification_channel">LX Music 同步</string>
-    <string name="sync_notification_title">同步运行中</string>
-    <string name="sync_notification_content">正与 LX Music 同步服务器保持连接</string>
-    <string name="sync_battery_action">关闭电池优化</string>
-    <string name="sync_battery_desc">允许应用在后台保持联网，避免同步被系统挂起</string>
-    <string name="sync_battery_already">已加入电池优化白名单</string>
-    <string name="sync_battery_unsupported">当前系统不支持此操作</string>
 
     <!-- Lyricon -->
     <string name="push_lyrics_to_media_session">蓝牙歌词</string>
@@ -642,4 +634,55 @@
     <string name="lyrics_weight_semibold">半粗</string>
     <string name="lyrics_weight_bold">加粗</string>
     <string name="lyrics_weight_black">特粗</string>
+    <string name="song_comments">歌曲评论</string>
+    <string name="comments_refresh">刷新评论</string>
+    <string name="comments_close">关闭评论</string>
+    <string name="comments_unsupported">该音源暂不支持评论</string>
+    <string name="comments_hot">热门 (%1$d)</string>
+    <string name="comments_latest">最新 (%1$d)</string>
+    <string name="comments_retry">加载失败，点击重试</string>
+    <string name="comments_empty">暂无评论</string>
+    <string name="comments_pages">第 %1$d 页，共 %2$d 页</string>
+    <string name="comments_likes">♡ %1$d</string>
+    <string name="comments_image">评论图片</string>
+    <string name="mv_download_duplicate">该 MV 已在下载队列中</string>
+    <string name="download_directory_permission_failed">无法保存此目录的访问权限，请选择可写目录。</string>
+    <string name="download_browse_local_directory">浏览本地路径</string>
+    <string name="download_open_directory">打开目录</string>
+    <string name="download_directory_open_failed">无法打开此目录，请检查访问权限或选择其他目录。</string>
+    <string name="download_file_delete_failed">文件删除失败，下载记录已保留。</string>
+    <string name="download_disc_sub_directory">多碟专辑按碟分子目录</string>
+    <string name="download_not_added">未添加下载，任务可能已存在或所选音质不可用。</string>
+    <string name="download_adding_tasks">正在添加下载…</string>
+    <string name="search_page_no_progress">搜索未返回新结果，请重试。</string>
+    <string name="song_info_title">歌曲信息</string>
+    <string name="song_info_hint">展示当前已保存的歌曲字段。链接或本地路径可能包含个人信息，分享前请检查。</string>
+    <string name="song_info_copied">已复制</string>
+    <string name="song_info_copy_failed">复制失败，可选中文字手动复制。</string>
+    <string name="song_info_copy_field">复制 %1$s</string>
+    <string name="song_info_copy_text">复制文本</string>
+    <string name="song_info_copy_json">复制 JSON</string>
+    <string name="show_list_operation_buttons">显示列表操作按钮</string>
+    <string name="section_network">网络设置</string>
+    <string name="settings_summary_network">接口、封面、播放与下载的 HTTP 代理</string>
+    <string name="proxy_enable">启用 HTTP 代理</string>
+    <string name="proxy_host">主机</string>
+    <string name="proxy_port">端口（1–65535）</string>
+    <string name="proxy_apply">应用代理</string>
+    <string name="proxy_disabled">使用直连</string>
+    <string name="proxy_checking">正在检测代理端口…</string>
+    <string name="proxy_invalid">主机或端口无效，已使用直连。</string>
+    <string name="proxy_unreachable">代理不可达，已回落直连。</string>
+    <string name="proxy_active">代理端口可达，HTTP 代理已启用。</string>
+    <string name="web_login_qq">QQ音乐登录</string>
+    <string name="web_login_wy">网易云音乐登录</string>
+    <string name="web_login_not_finished">尚未获取登录凭据，请先在网页完成登录。</string>
+    <string name="web_login_load_failed">登录页面加载失败，请重试。</string>
+    <string name="web_proxy_applying">正在应用网络设置…</string>
+    <string name="web_proxy_unsupported">当前 WebView 不支持应用代理，请更新 Android 系统 WebView 或关闭应用代理后继续。</string>
+    <string name="web_proxy_failed">WebView 网络设置应用失败，请重试。</string>
+    <string name="web_proxy_system">当前 WebView 使用设备网络设置。</string>
+    <string name="section_list">列表设置</string>
+    <string name="settings_summary_list">歌曲列表操作按钮</string>
+    <string name="list_settings_artist_hint">歌手页的专辑排列方式与排序方向在该页面内切换。</string>
 </resources>

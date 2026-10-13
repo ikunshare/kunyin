@@ -204,7 +204,6 @@
     <string name="view_notice">查看公告</string>
     <string name="no_notice">暫無公告</string>
     <string name="join_qq_group">加入 QQ 群</string>
-    <string name="join_telegram_group">加入 Telegram 群組</string>
     <string name="follow_telegram_channel">關注 Telegram 頻道</string>
 
     <!-- 設定頁 - 背景設定對話框 -->
@@ -522,13 +521,6 @@
     <string name="sync_status_connected">已連接</string>
     <string name="sync_status_failed">連接失敗：%1$s</string>
     <string name="sync_required_fields">請填寫伺服器位址與 CDK</string>
-    <string name="sync_notification_channel">LX Music 同步</string>
-    <string name="sync_notification_title">同步執行中</string>
-    <string name="sync_notification_content">正與 LX Music 同步伺服器保持連線</string>
-    <string name="sync_battery_action">關閉電池最佳化</string>
-    <string name="sync_battery_desc">允許應用在背景保持連線，避免同步被系統暫停</string>
-    <string name="sync_battery_already">已加入電池最佳化白名單</string>
-    <string name="sync_battery_unsupported">目前系統不支援此操作</string>
 
     <!-- Lyricon -->
     <string name="push_lyrics_to_media_session">推送歌詞到 MediaSession</string>
@@ -635,4 +627,55 @@
     <string name="lyrics_weight_semibold">半粗</string>
     <string name="lyrics_weight_bold">加粗</string>
     <string name="lyrics_weight_black">特粗</string>
+    <string name="song_comments">歌曲評論</string>
+    <string name="comments_refresh">重新整理評論</string>
+    <string name="comments_close">關閉評論</string>
+    <string name="comments_unsupported">此音源暫不支援評論</string>
+    <string name="comments_hot">熱門 (%1$d)</string>
+    <string name="comments_latest">最新 (%1$d)</string>
+    <string name="comments_retry">載入失敗，點擊重試</string>
+    <string name="comments_empty">暫無評論</string>
+    <string name="comments_pages">第 %1$d 頁，共 %2$d 頁</string>
+    <string name="comments_likes">♡ %1$d</string>
+    <string name="comments_image">評論圖片</string>
+    <string name="mv_download_duplicate">此 MV 已在下載佇列中</string>
+    <string name="download_directory_permission_failed">無法儲存此目錄的存取權限，請選擇可寫入的目錄。</string>
+    <string name="download_browse_local_directory">瀏覽本機路徑</string>
+    <string name="download_open_directory">開啟目錄</string>
+    <string name="download_directory_open_failed">無法開啟此目錄，請檢查存取權限或選擇其他目錄。</string>
+    <string name="download_file_delete_failed">檔案刪除失敗，下載記錄已保留。</string>
+    <string name="download_disc_sub_directory">多碟專輯依碟分子目錄</string>
+    <string name="download_not_added">未新增下載，任務可能已存在或所選音質無法使用。</string>
+    <string name="download_adding_tasks">正在新增下載…</string>
+    <string name="search_page_no_progress">搜尋未傳回新結果，請重試。</string>
+    <string name="song_info_title">歌曲資訊</string>
+    <string name="song_info_hint">顯示目前已儲存的歌曲欄位。連結或本機路徑可能包含個人資訊，分享前請檢查。</string>
+    <string name="song_info_copied">已複製</string>
+    <string name="song_info_copy_failed">複製失敗，可選取文字手動複製。</string>
+    <string name="song_info_copy_field">複製 %1$s</string>
+    <string name="song_info_copy_text">複製文字</string>
+    <string name="song_info_copy_json">複製 JSON</string>
+    <string name="show_list_operation_buttons">顯示列表操作按鈕</string>
+    <string name="section_network">網路設定</string>
+    <string name="settings_summary_network">介面、封面、播放與下載的 HTTP 代理</string>
+    <string name="proxy_enable">啟用 HTTP 代理</string>
+    <string name="proxy_host">主機</string>
+    <string name="proxy_port">連接埠（1–65535）</string>
+    <string name="proxy_apply">套用代理</string>
+    <string name="proxy_disabled">使用直連</string>
+    <string name="proxy_checking">正在檢查代理連接埠…</string>
+    <string name="proxy_invalid">主機或連接埠無效，已使用直連。</string>
+    <string name="proxy_unreachable">代理無法連線，已回退直接連線。</string>
+    <string name="proxy_active">代理連接埠可達，HTTP 代理已啟用。</string>
+    <string name="web_login_qq">QQ音樂登入</string>
+    <string name="web_login_wy">網易雲音樂登入</string>
+    <string name="web_login_not_finished">尚未取得登入憑證，請先在網頁完成登入。</string>
+    <string name="web_login_load_failed">登入頁面載入失敗，請重試。</string>
+    <string name="web_proxy_applying">正在套用網路設定…</string>
+    <string name="web_proxy_unsupported">目前 WebView 不支援應用程式代理，請更新 Android 系統 WebView 或關閉應用程式代理後繼續。</string>
+    <string name="web_proxy_failed">WebView 網路設定套用失敗，請重試。</string>
+    <string name="web_proxy_system">目前 WebView 使用裝置網路設定。</string>
+    <string name="section_list">列表設定</string>
+    <string name="settings_summary_list">歌曲列表操作按鈕</string>
+    <string name="list_settings_artist_hint">歌手頁的專輯排列方式與排序方向在該頁面內切換。</string>
 </resources>

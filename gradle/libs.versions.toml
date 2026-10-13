@@ -1,28 +1,32 @@
 [versions]
-agp = "9.3.3"
-appcompat = "1.7.1"
-backdrop = "2.0.0"
-coilCompose = "3.5.0"
+agp = "9.4.1"
+appcompat = "1.8.0"
+backdrop = "2.0.1"
+shapes = "1.2.1"
+coilCompose = "3.6.3"
 coreSplashscreen = "1.2.0"
-coreKtx = "1.19.0"
+coreKtx = "1.19.1"
 documentfile = "1.1.0"
+webkit = "1.17.1"
 palette = "1.0.0"
 gson = "2.14.0"
 lifecycleRuntimeKtx = "2.11.0"
 activityCompose = "1.13.0"
-kotlin = "2.4.0"
-composeBom = "2026.06.01"
-composeNavigation = "2.9.8"
+kotlin = "2.4.21"
+composeBom = "2026.09.00"
+composeNavigation = "2.10.2"
 materialIconsCore = "1.7.8"
 media = "1.8.0"
-media3 = "1.10.1"
+media3 = "1.11.1"
 okhttp = "5.4.0"
 lyriconProvider = "0.1.70"
-markdownRenderer = "0.43.0"
+markdownRenderer = "0.45.0"
 zxing = "3.5.4"
 junit = "4.13.2"
+robolectric = "4.17"
 
 [libraries]
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
 androidx-appcompat-resources = { module = "androidx.appcompat:appcompat-resources", version.ref = "appcompat" }
 androidx-compose-material-icons-core = { module = "androidx.compose.material:material-icons-core", version.ref = "materialIconsCore" }
@@ -39,6 +43,7 @@ androidx-compose-material3 = { group = "androidx.compose.material3", name = "mat
 androidx-compose-material3-adaptive-navigation-suite = { group = "androidx.compose.material3", name = "material3-adaptive-navigation-suite" }
 androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "composeNavigation" }
 androidx-documentfile = { module = "androidx.documentfile:documentfile", version.ref = "documentfile" }
+androidx-webkit = { module = "androidx.webkit:webkit", version.ref = "webkit" }
 androidx-palette = { module = "androidx.palette:palette-ktx", version.ref = "palette" }
 androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycleRuntimeKtx" }
 androidx-media = { module = "androidx.media:media", version.ref = "media" }
@@ -46,12 +51,14 @@ androidx-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", versi
 androidx-media3-session = { module = "androidx.media3:media3-session", version.ref = "media3" }
 androidx-media3-datasource-okhttp = { module = "androidx.media3:media3-datasource-okhttp", version.ref = "media3" }
 liquid-glass = { module = "io.github.kyant0:backdrop", version.ref = "backdrop" }
+kyant-shapes = { module = "io.github.kyant0:shapes", version.ref = "shapes" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coilCompose" }
 coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coilCompose" }
 google-gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 lyricon-provider = { module = "io.github.proify.lyricon:provider", version.ref = "lyriconProvider" }
 markdown-renderer-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdownRenderer" }
+markdown-renderer-coil3 = { module = "com.mikepenz:multiplatform-markdown-renderer-coil3", version.ref = "markdownRenderer" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 junit = { module = "junit:junit", version.ref = "junit" }
 

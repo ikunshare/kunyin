@@ -9,9 +9,9 @@
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission
-        android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission
         android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission
         android:name="android.permission.WAKE_LOCK" />
     <uses-permission
@@ -33,17 +33,16 @@
         android:name="android.permission.REQUEST_INSTALL_PACKAGES"
         tools:ignore="RequestInstallPackagesPolicy" />
 
-    <!-- Lyricon 服务查询声明 -->
+    <!-- Lyricon 中心服务：默认由 SystemUI 承载，localcentralapp 用于无 LSPosed 环境的本地测试 -->
     <queries>
+        <package android:name="com.android.systemui" />
         <package android:name="io.github.lyricon.localcentralapp" />
-        <intent>
-            <action android:name="io.github.proify.lyricon.provider.PROVIDER_SERVICE" />
-        </intent>
     </queries>
 
     <application
-        android:name=".SoundApplication"
+        android:name=".MusicApplication"
         android:allowBackup="true"
+        android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -83,10 +82,6 @@
             android:foregroundServiceType="mediaPlayback" />
         <service
             android:name=".service.DownloadService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-        <service
-            android:name=".service.SyncService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
         <provider

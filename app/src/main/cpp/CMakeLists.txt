@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.18.1)
+project(KunYinNative LANGUAGES C CXX)
 
 # 1. 先定义所有的极致压缩参数（必须在 add_subdirectory 之前！）
 # -Oz: 比 -Os 更激进的体积压缩 (Clang/NDK 支持)
@@ -30,10 +31,9 @@ add_link_options(
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--gc-sections -Wl,--icf=all -Wl,-s")
 
 # 2. 包含头文件路径
-include_directories(${CMAKE_SOURCE_DIR}/Lrc ${CMAKE_SOURCE_DIR}/MflacCrypto ${CMAKE_SOURCE_DIR}/KgCrypto)
+include_directories(${CMAKE_SOURCE_DIR}/Lrc ${CMAKE_SOURCE_DIR}/MflacCrypto)
 
 # 3. 最后添加子目录（此时它们会继承上面的优化参数）
 add_subdirectory(Lrc)
 add_subdirectory(MflacCrypto)
-add_subdirectory(KgCrypto)
 

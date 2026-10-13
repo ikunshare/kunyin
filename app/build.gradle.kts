@@ -4,8 +4,8 @@ plugins {
 }
 
 var applicationName = "坤音"
-var verName = "26.6.7"
-var verCode = 26607
+var verName = "1.0.0-β"
+var verCode = 1002
 
 val signingPropertyNames = listOf(
     "KEYSTORE_STORE_FILE",
@@ -47,13 +47,13 @@ android {
             }
         }
     }
-    namespace = "com.ikunshare.sound"
+    namespace = "com.ikunshare.music"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.ikunshare.sound"
+        applicationId = "com.ikunshare.music"
         minSdk = 24
         targetSdk = 37
         versionName = verName
@@ -105,6 +105,9 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
@@ -143,6 +146,7 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.appcompat.resources)
     implementation(libs.androidx.documentfile)
+    implementation(libs.androidx.webkit)
     implementation(libs.androidx.palette)
     implementation(libs.androidx.media)
     implementation(libs.androidx.media3.exoplayer)
@@ -154,8 +158,11 @@ dependencies {
     implementation(libs.google.gson)
     implementation(libs.okhttp)
     implementation(libs.liquid.glass)
+    implementation(libs.kyant.shapes)
     implementation(libs.lyricon.provider)
     implementation(libs.markdown.renderer.m3)
+    implementation(libs.markdown.renderer.coil3)
     implementation(libs.zxing.core)
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
 }
