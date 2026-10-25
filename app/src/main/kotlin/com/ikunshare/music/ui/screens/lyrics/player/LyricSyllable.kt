@@ -8,6 +8,7 @@ import androidx.compose.ui.graphics.GraphicsContext
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
@@ -483,8 +484,14 @@ internal class SyllablePainter(private val config: LyricPlayerConfig) {
         layers: SyllableLayerCache?,
     ) {
         if (elementAlpha <= 0.002f) return
-        val progress = if (active) clamp01(relativeTime / layout.lineDuration) else 1f
-        val normalRatio = if (active) maskNormalAlpha else 1f
+        // 播过但未唱完就退场的行：mask 冻结在退场进度，未唱部分保持压暗随整行淡出，避免瞬间变亮闪烁
+        val frozen = !active && anim.relAtDeactivation > 0f
+        val progress = when {
+            active -> clamp01(relativeTime / layout.lineDuration)
+            frozen -> clamp01(anim.relAtDeactivation / layout.lineDuration)
+            else -> 1f
+        }
+        val normalRatio = if (active || frozen) maskNormalAlpha else 1f
         // 上浮终点取整像素：静止后图层落在像素网格上，不会因双线性采样发虚
         val floatTo = round(config.float.toEm * layout.fontPx)
         val floatFrom = round(config.float.fromEm * layout.fontPx)
@@ -504,7 +511,7 @@ internal class SyllablePainter(private val config: LyricPlayerConfig) {
                 activeX = Float.POSITIVE_INFINITY
                 fadeX = Float.POSITIVE_INFINITY
                 val mask = word.mask
-                if (active && mask != null) {
+                if ((active || frozen) && mask != null) {
                     sampleInto(mask, progress)
                     activeX = scratch[0]
                     fadeX = scratch[1]
@@ -544,7 +551,7 @@ internal class SyllablePainter(private val config: LyricPlayerConfig) {
                 var a = Float.POSITIVE_INFINITY
                 var f = Float.POSITIVE_INFINITY
                 val m = masks?.getOrNull(i)
-                if (active && m != null) {
+                if ((active || frozen) && m != null) {
                     sampleInto(m, progress)
                     a = scratch[0]
                     f = scratch[1]
@@ -588,23 +595,26 @@ internal class SyllablePainter(private val config: LyricPlayerConfig) {
         return from + (to - from) * CssEase.transform(clamp01(local / duration))
     }
 
-    /** 以文字笔刷实现擦除：全未唱 / 全已唱用纯色，过渡区用 [activeX, fadeX] 的横向渐变。 */
+    /**
+     * 擦除 = 双层互补 clip 硬切：已唱区 [0, activeX) 与未唱区 [activeX, width) 各画一遍完整文字，
+     * 互不重叠、无渐变、无状态分支。边界是单一浮点值 activeX，离屏图层合成时双线性采样，
+     * 亚像素移动不闪。[fadeX] 保留用于软边签名兼容，当前不参与绘制。
+     */
     private fun drawMasked(
         scope: DrawScope, layout: TextLayoutResult, left: Float, top: Float, activeX: Float, fadeX: Float,
         width: Float, color: Color, alphaActive: Float, alphaNormal: Float,
     ) {
         val topLeft = Offset(left, top)
-        when {
-            fadeX <= 0f -> scope.drawText(layout, color = color.copy(alpha = alphaNormal), topLeft = topLeft)
-            activeX >= width || alphaActive == alphaNormal ->
+        val height = layout.size.height.toFloat()
+        val cut = activeX.coerceIn(0f, width)
+        if (cut > 0f) {
+            scope.clipRect(left = left, top = top - 1f, right = left + cut, bottom = top + height + 1f) {
                 scope.drawText(layout, color = color.copy(alpha = alphaActive), topLeft = topLeft)
-            else -> {
-                val brush = Brush.horizontalGradient(
-                    colors = listOf(color.copy(alpha = alphaActive), color.copy(alpha = alphaNormal)),
-                    startX = activeX,
-                    endX = max(fadeX, activeX + 0.01f),
-                )
-                scope.drawText(layout, brush = brush, topLeft = topLeft)
+            }
+        }
+        if (cut < width) {
+            scope.clipRect(left = left + cut, top = top - 1f, right = left + width + 1f, bottom = top + height + 1f) {
+                scope.drawText(layout, color = color.copy(alpha = alphaNormal), topLeft = topLeft)
             }
         }
     }

@@ -271,8 +271,8 @@ internal fun LyricViewport(
         holder.minDrag = activePosition - h[n - 1] - creditsExtra - (tops[n - 1] + currentOffset)
         if (holder.minDrag > holder.maxDrag) holder.minDrag = holder.maxDrag
 
-        // 首次排版或激活行尚未实测时直接落位；窗口边缘未实测的行用估计高度参与前缀和，实测后再平滑修正
-        val immediate = holder.previousOffset == null || !heights.containsKey(fa)
+        // 首次排版直接落位；激活行未实测时仍走动画（用估计高度），实测后由 heightsVersion 触发二次收敛
+        val immediate = holder.previousOffset == null
         val seedOffset = holder.previousOffset ?: currentOffset
 
         val activeIndex = fa
@@ -340,20 +340,13 @@ internal fun LyricViewport(
             val half = t.durationMs / 2
             val visible = if (t.hide) 0f else 1f
             if (motion.visible.targetValue != visible || (!motion.visible.isRunning && motion.visible.value != visible)) {
-                scope.launch {
-                    if (immediate) motion.visible.snapTo(visible)
-                    else motion.visible.animateTo(visible, tween(half, t.delayMs, CssEase))
-                }
+                scope.launch { motion.visible.animateTo(visible, tween(half, t.delayMs, CssEase)) }
             }
             if (motion.scale.targetValue != t.scale || (!motion.scale.isRunning && motion.scale.value != t.scale)) {
-                scope.launch {
-                    if (immediate) motion.scale.snapTo(t.scale) else motion.scale.animateTo(t.scale, tween(t.durationMs, t.delayMs, config.scroll.easing))
-                }
+                scope.launch { motion.scale.animateTo(t.scale, tween(t.durationMs, t.delayMs, config.scroll.easing)) }
             }
             if (motion.blur.targetValue != t.blur || (!motion.blur.isRunning && motion.blur.value != t.blur)) {
-                scope.launch {
-                    if (immediate) motion.blur.snapTo(t.blur) else motion.blur.animateTo(t.blur, tween(half, t.delayMs, CssEase))
-                }
+                scope.launch { motion.blur.animateTo(t.blur, tween(half, t.delayMs, CssEase)) }
             }
         }
 
