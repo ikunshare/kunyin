@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
@@ -53,7 +52,7 @@ fun DownloadQualityDialog(
     val options = if (hideAi) standardQualities else allQualities
     var selected by remember(hideAi) { mutableStateOf(options.first().first) }
 
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(stringResource(R.string.select_download_quality)) },
         text = {

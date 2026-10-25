@@ -43,7 +43,7 @@ fun PlaylistDuplicateDialog(playlistId: Long, playlistName: String, store: Local
         catch (failure: Exception) { error = failure.message ?: failure.javaClass.simpleName }
         finally { loading = false }
     }
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(stringResource(R.string.playlist_duplicates_title, playlistName)) },
         text = {

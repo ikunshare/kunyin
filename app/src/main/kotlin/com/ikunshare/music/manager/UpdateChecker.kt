@@ -3,7 +3,6 @@ package com.ikunshare.music.manager
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
-import com.ikunshare.music.utils.NetworkProxy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -74,7 +73,7 @@ class UpdateChecker(context: Context) {
         val request = Request.Builder().url(CHECK_UPDATE_URL).post(body).build()
 
         val data = runCatching {
-            NetworkProxy.call(checkClient, request).execute().use { response ->
+            checkClient.newCall(request).execute().use { response ->
                 // 404 表示已是最新
                 if (!response.isSuccessful) return@use null
                 val json = JSONObject(response.body.string())
@@ -123,7 +122,7 @@ class UpdateChecker(context: Context) {
         return try {
             val digest = MessageDigest.getInstance("MD5")
             val request = Request.Builder().url(info.downloadUrl).build()
-            NetworkProxy.call(downloadClient, request).execute().use { response ->
+            downloadClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null
 
                 val body = response.body

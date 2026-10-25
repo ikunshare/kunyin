@@ -4,7 +4,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.lifecycle.Lifecycle
@@ -65,7 +64,11 @@ internal fun rememberPlayerControlsVisibility(
     return controls
 }
 
-/** Observe gestures without taking horizontal paging or vertical lyric scrolling away from children. */
+/**
+ * Observe gestures without taking anything away from children: taps reach lyric lines and buttons on the
+ * first try. Only a tap nobody consumed (empty area) reveals hidden controls, so seeking from a lyric line
+ * never slides the controls in over the lyric animation.
+ */
 internal fun Modifier.playerControlsGestures(
     controls: PlayerControlsVisibility, autoHideEnabled: Boolean
 ): Modifier = pointerInput(controls, autoHideEnabled) {
@@ -73,29 +76,23 @@ internal fun Modifier.playerControlsGestures(
     try {
         awaitPointerEventScope {
             var gestureActive = false
-            var wakeOnly = false
             var origin = Offset.Zero
             var moved = false
             while (true) {
-                val event = awaitPointerEvent(PointerEventPass.Initial)
+                // Final pass: children have already handled (and possibly consumed) the event.
+                val event = awaitPointerEvent(PointerEventPass.Final)
                 val pressed = event.changes.any { it.pressed }
                 if (!gestureActive && pressed) {
                     gestureActive = true
-                    wakeOnly = autoHideEnabled && !controls.visible
                     origin = event.changes.first { it.pressed }.position
                     moved = false
                     controls.touching = true
                 }
                 if (gestureActive) {
                     if (event.changes.size > 1 || event.changes.any { (it.position - origin).getDistance() > slop }) moved = true
-                    // A hidden player's first tap only reveals controls, never seeks or presses a song action.
-                    // Scrollables can still start from a consumed down and receive all subsequent movement.
-                    if (wakeOnly) event.changes.filter { it.changedToDownIgnoreConsumed() }.forEach { it.consume() }
                     if (!pressed) {
-                        if (wakeOnly && !moved) {
-                            event.changes.filter { it.changedToUpIgnoreConsumed() }.forEach { it.consume() }
-                            controls.show()
-                        }
+                        val tapUnhandled = !moved && event.changes.none { it.changedToUpIgnoreConsumed() && it.isConsumed }
+                        if (autoHideEnabled && !controls.visible && tapUnhandled) controls.show()
                         gestureActive = false
                         controls.releaseTouch()
                     }

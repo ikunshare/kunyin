@@ -31,6 +31,7 @@ import com.ikunshare.music.model.MusicItem
 import com.ikunshare.music.manager.discovery.ChartInfo
 import com.ikunshare.music.ui.KunyinViewModelFactory
 import com.ikunshare.music.ui.components.*
+import com.ikunshare.music.ui.components.GlassAlertDialog
 import com.ikunshare.music.ui.screens.player.PlayerViewModel
 import com.ikunshare.music.ui.utils.LocalFloatingBottomBarReserve
 import com.ikunshare.music.ui.utils.rememberPlaylistWriteActions
@@ -117,7 +118,7 @@ fun ChartsScreen(navController: NavController, player: PlayerViewModel, factory:
                 if (selected.isNotEmpty()) SelectionBottomBar(selected.size,
                     onDownload = { download = selected.toList() }, onAddToPlaylist = { addSongs = selected.toList() },
                     onPlayNext = { player.addToPlayNext(selected.toList()); selected.clear() },
-                    liquidGlass = true, busy = writes.isWriting)
+                    busy = writes.isWriting)
             }) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
                 ChartChoice(state.source, listOf("wy" to "网易云音乐", "qq" to "QQ音乐", "kg" to "酷狗音乐", "kw" to "酷我音乐"),
@@ -201,7 +202,7 @@ fun ChartsScreen(navController: NavController, player: PlayerViewModel, factory:
     }
     boardMenu?.let { board ->
         val collecting = "${board.source}:${board.id}" in state.collecting
-        AlertDialog(onDismissRequest = { boardMenu = null }, title = { Text(board.name) },
+        GlassAlertDialog(onDismissRequest = { boardMenu = null }, title = { Text(board.name) },
             text = { Text("播放完整榜单，或将全部歌曲收藏为本地歌单。") },
             confirmButton = { TextButton(onClick = { boardMenu = null; collect(board) }, enabled = !collecting) { Text(if (collecting) "正在收藏…" else "收藏到我的歌单") } },
             dismissButton = { TextButton(onClick = { boardMenu = null; playAll(board) }, enabled = !state.playingAll) { Text("播放全部") } })

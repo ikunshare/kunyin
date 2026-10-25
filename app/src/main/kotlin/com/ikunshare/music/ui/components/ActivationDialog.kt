@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -38,7 +37,7 @@ fun ActivationDialog(
 ) {
     var input by remember { mutableStateOf("") }
 
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = { /* 首次启动必须激活，忽略外部点击 */ },
         title = {
             Text(

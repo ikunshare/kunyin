@@ -302,7 +302,7 @@ internal fun Modifier.liquidGlass(
  * Specular rim lit from above, as on iOS 26 glass: a bright top edge that fades through
  * the sides and picks up a little light again at the bottom.
  */
-private fun glassRim(dark: Boolean): Brush = if (dark) {
+internal fun glassRim(dark: Boolean): Brush = if (dark) {
     Brush.verticalGradient(
         0f to Color.White.copy(alpha = 0.3f),
         0.45f to Color.White.copy(alpha = 0.05f),

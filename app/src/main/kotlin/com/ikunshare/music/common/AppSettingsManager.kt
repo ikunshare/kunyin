@@ -56,9 +56,6 @@ data class AppSettings(
     val bgOverlayOpacity: Float = 0.7f,
     // 封面模糊背景
     val coverBlurBg: Boolean = true,
-    // 液态玻璃模式
-    val floatingBottomBar: Boolean = false,
-    val liquidGlassMode: Boolean = false,
     // 底栏不透明度
     val bottomBarOpacity: Float = 1.0f,
     // 桌面歌词设置
@@ -115,10 +112,7 @@ data class AppSettings(
     // 歌手页专辑列表模式（true=单行列表，false=网格）
     val albumListMode: Boolean = false,
     val albumSortAsc: Boolean = false,
-    val showListOperationButtons: Boolean = true,
-    val proxyEnabled: Boolean = false,
-    val proxyHost: String = "127.0.0.1",
-    val proxyPort: Int = 0
+    val showListOperationButtons: Boolean = true
 )
 
 internal fun AppSettings.withExclusiveFloatingLyricSubLine(previous: AppSettings? = null): AppSettings {
@@ -196,11 +190,6 @@ class AppSettingsManager(context: Context) {
         bgImageOnPlayer = prefs.getBoolean("bg_image_on_player", false),
         bgOverlayOpacity = prefs.getFloat("bg_overlay_opacity", 0.7f),
         coverBlurBg = prefs.getBoolean("cover_blur_bg", true),
-        floatingBottomBar = prefs.getBoolean(
-            "floating_bottom_bar",
-            prefs.getBoolean("enable_liquid_glass", false)
-        ),
-        liquidGlassMode = prefs.getBoolean("enable_liquid_glass", false),
         bottomBarOpacity = prefs.getFloat("bottom_bar_opacity", 1.0f),
         floatingLyricsEnabled = prefs.getBoolean("floating_lyrics_enabled", false),
         floatingLyricsKaraoke = prefs.getBoolean("floating_lyrics_karaoke", true),
@@ -253,9 +242,6 @@ class AppSettingsManager(context: Context) {
         trialListAddToHead = prefs.getBoolean("trial_list_add_to_head", false),
         autoOpenPlayerOnSongClick = prefs.getBoolean("auto_open_player_on_song_click", true),
         showListOperationButtons = prefs.getBoolean("show_list_operation_buttons", true),
-        proxyEnabled = prefs.getBoolean("proxy_enabled", false),
-        proxyHost = prefs.getString("proxy_host", "127.0.0.1") ?: "127.0.0.1",
-        proxyPort = prefs.getInt("proxy_port", 0),
         albumListMode = prefs.getBoolean("album_list_mode", false),
         albumSortAsc = prefs.getBoolean("album_sort_asc", false)
     ).withExclusiveFloatingLyricSubLine()
@@ -298,8 +284,6 @@ class AppSettingsManager(context: Context) {
             .putBoolean("bg_image_on_player", new.bgImageOnPlayer)
             .putFloat("bg_overlay_opacity", new.bgOverlayOpacity)
             .putBoolean("cover_blur_bg", new.coverBlurBg)
-            .putBoolean("floating_bottom_bar", new.floatingBottomBar)
-            .putBoolean("enable_liquid_glass", new.liquidGlassMode)
             .putFloat("bottom_bar_opacity", new.bottomBarOpacity)
             .putBoolean("floating_lyrics_enabled", new.floatingLyricsEnabled)
             .putBoolean("floating_lyrics_karaoke", new.floatingLyricsKaraoke)
@@ -342,9 +326,6 @@ class AppSettingsManager(context: Context) {
             .putBoolean("trial_list_add_to_head", new.trialListAddToHead)
             .putBoolean("auto_open_player_on_song_click", new.autoOpenPlayerOnSongClick)
             .putBoolean("show_list_operation_buttons", new.showListOperationButtons)
-            .putBoolean("proxy_enabled", new.proxyEnabled)
-            .putString("proxy_host", new.proxyHost)
-            .putInt("proxy_port", new.proxyPort)
             .putBoolean("album_list_mode", new.albumListMode)
             .putBoolean("album_sort_asc", new.albumSortAsc)
             .apply()

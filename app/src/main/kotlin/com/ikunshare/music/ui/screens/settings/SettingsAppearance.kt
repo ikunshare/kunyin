@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
+import com.ikunshare.music.ui.components.GlassAlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -44,7 +44,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
+import com.ikunshare.music.ui.components.GlassDialog
+import com.ikunshare.music.ui.components.glassDialogSurface
 import androidx.core.os.LocaleListCompat
 import coil3.compose.AsyncImage
 import com.ikunshare.music.R
@@ -241,21 +242,6 @@ internal fun AppearanceSection(
         vm.updateSettings { copy(coverBlurBg = it) }
     }
 
-    // 悬浮底栏
-    SettingSwitchItem(stringResource(R.string.floating_bottom_bar), settings.floatingBottomBar) {
-        vm.updateSettings {
-            if (it) copy(floatingBottomBar = true)
-            else copy(floatingBottomBar = false, liquidGlassMode = false)
-        }
-    }
-
-    // 液态玻璃（需要悬浮底栏 + Android 10+）
-    if (settings.floatingBottomBar && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-        SettingSwitchItem(stringResource(R.string.enable_liquid_glass), settings.liquidGlassMode) {
-            vm.updateSettings { copy(liquidGlassMode = it) }
-        }
-    }
-
     // 导入主题
     SettingClickableItem(
         label = stringResource(R.string.import_theme),
@@ -328,7 +314,7 @@ internal fun AppearanceSection(
     // 删除确认
     showDeleteConfirm?.let { themeId ->
         val theme = customThemes.firstOrNull { it.id == themeId }
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { showDeleteConfirm = null },
             title = { Text(stringResource(R.string.delete_theme)) },
             text = { Text(stringResource(R.string.delete_theme_confirm, theme?.name ?: "")) },
@@ -358,7 +344,7 @@ internal fun AppearanceSection(
     if (showImportThemeDialog) {
         var codeInput by remember { mutableStateOf("") }
         var importing by remember { mutableStateOf(false) }
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { if (!importing) showImportThemeDialog = false },
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             title = {
@@ -579,7 +565,7 @@ internal fun TextInputDialog(
     onDismiss: () -> Unit
 ) {
     var text by remember { mutableStateOf(initialValue) }
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
@@ -633,12 +619,9 @@ internal fun CustomThemeBgDialog(
         }
     }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(DialogCornerRadius),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 6.dp,
-            modifier = Modifier.fillMaxWidth()
+    GlassDialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier.fillMaxWidth().glassDialogSurface()
         ) {
             Column(modifier = Modifier.padding(24.dp)) {
                 Text(
@@ -764,12 +747,9 @@ internal fun BgSettingsDialog(
         }
     }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(DialogCornerRadius),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 6.dp,
-            modifier = Modifier.fillMaxWidth()
+    GlassDialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier.fillMaxWidth().glassDialogSurface()
         ) {
             Column(modifier = Modifier.padding(24.dp)) {
                 Text(

@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,12 +13,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material3.AlertDialog
+import com.ikunshare.music.ui.components.GlassAlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -35,7 +35,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
+import com.ikunshare.music.ui.components.GlassDialog
+import com.ikunshare.music.ui.components.glassDialogSurface
 import com.ikunshare.music.R
 import com.ikunshare.music.MusicApplication
 import com.ikunshare.music.manager.CredentialEntry
@@ -144,7 +145,7 @@ internal fun AccountSection(
     reloginProvider?.let { info ->
         val userInfo = platformPlaylistStore?.getUserInfo(info.key)
         val displayName = userInfo?.name ?: info.displayName
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { reloginProvider = null },
             title = { Text(stringResource(R.string.relogin_confirm_title)) },
             text = { Text(stringResource(R.string.relogin_confirm_message, displayName)) },
@@ -178,7 +179,7 @@ internal fun WebLoginMethodDialog(
     onQRLogin: () -> Unit,
     onWebViewLogin: () -> Unit
 ) {
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(providerName) },
         text = {
@@ -208,7 +209,7 @@ internal fun KgLoginMethodDialog(
     onManualLogin: () -> Unit,
     onClear: () -> Unit
 ) {
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("酷狗音乐") },
         text = {
@@ -260,14 +261,12 @@ internal fun KgCredentialDialog(
     }
     var advancedExpanded by remember { mutableStateOf(false) }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(DialogCornerRadius),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 6.dp,
+    GlassDialog(onDismissRequest = onDismiss) {
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 24.dp)
+                .glassDialogSurface()
         ) {
             Column(Modifier.padding(24.dp)) {
                 Text(

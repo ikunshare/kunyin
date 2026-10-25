@@ -19,7 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material3.AlertDialog
+import com.ikunshare.music.ui.components.GlassAlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -321,7 +321,7 @@ private fun LxImportPreviewDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         title = {
@@ -401,7 +401,7 @@ private fun PlaylistExportDialog(
         mutableStateListOf<Long>().also { it.addAll(userPlaylists.map { p -> p.id }) }
     }
 
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         title = {
@@ -515,7 +515,7 @@ private fun RestorePreviewDialog(
     var restoreHistory by remember { mutableStateOf(true) }
     var restorePlaylists by remember { mutableStateOf(true) }
 
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         title = {

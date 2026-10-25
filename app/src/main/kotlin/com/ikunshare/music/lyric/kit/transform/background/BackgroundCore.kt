@@ -162,7 +162,7 @@ internal object BackgroundCore {
 
         if (inBracket) {
             if (lastOpenWord != null && lastOpenChar != null) {
-                mainWords.add(copyNormalWord(lastOpenWord!!, lastOpenChar.toString()))
+                mainWords.add(copyNormalWord(lastOpenWord, lastOpenChar.toString()))
             }
             mainWords.addAll(currentBackground)
             currentBackground = ArrayList()

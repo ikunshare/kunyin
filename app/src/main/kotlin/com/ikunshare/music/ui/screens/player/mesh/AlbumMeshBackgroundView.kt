@@ -26,6 +26,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.random.Random
 
 /**
@@ -40,6 +41,18 @@ internal object MeshBgState {
 }
 
 private data class AlbumRequest(val bitmap: Bitmap, val key: String)
+
+/** 与桌面端 AmllBackground.vue 对齐的渲染参数。 */
+private const val RENDER_SCALE = 0.3f          // r.setRenderScale(0.3)
+private const val OVERSCAN = 1.3f              // CSS transform: scale(1.3)
+private const val TARGET_FPS = 30              // r.setFPS(30)
+private const val LOW_FREQ_VOLUME = 1f / 10f   // r.setLowFreqVolume(1) → volume / 10
+/** 同时保留的网格状态上限（当前 + 一个正在淡出的旧状态），切歌过快时不会堆积。 */
+private const val MAX_MESH_STATES = 2
+/** 网格以 ~5% 透明度叠在底色上，底色取桌面端 .player-page 的 #101013。 */
+private const val BASE_R = 0x10 / 255f
+private const val BASE_G = 0x10 / 255f
+private const val BASE_B = 0x13 / 255f
 
 private class MeshState(
     val mesh: BHPMesh,
@@ -114,11 +127,10 @@ private class AlbumMeshRenderer {
         surfaceWidth = width
         surfaceHeight = height
         GLES20.glViewport(0, 0, width, height)
-        // The source is a 32px, soft colour mesh. Cap the intermediate buffer,
-        // then upscale with GL_LINEAR; the final screen and controls stay sharp.
-        val scale = minOf(1f, 768f / maxOf(width, height).coerceAtLeast(1))
-        renderWidth = (width * scale).toInt().coerceAtLeast(1)
-        renderHeight = (height * scale).toInt().coerceAtLeast(1)
+        // 低渲染比例 + 过扫描（见 OVERSCAN）：BHP 网格 patch 交界在强色差下会露出
+        // 多边形接缝，低分辨率渲染把接缝糊化、过扫描把边缘裁出屏幕，同时更省性能。
+        renderWidth = (width * RENDER_SCALE).toInt().coerceAtLeast(1)
+        renderHeight = (height * RENDER_SCALE).toInt().coerceAtLeast(1)
         updateFbo(renderWidth, renderHeight)
     }
 
@@ -195,6 +207,10 @@ private class AlbumMeshRenderer {
         // 同一封面重开：直接以完全显示状态出现，避免又淡入一遍。
         val sameAsLast = req.key == MeshBgState.lastCoverKey
         MeshBgState.lastCoverKey = req.key
+        while (meshStates.size >= MAX_MESH_STATES) {
+            val stale = meshStates.removeAt(0)
+            stale.mesh.dispose(); stale.texture.dispose()
+        }
         meshStates.add(MeshState(mesh, texture, if (sameAsLast) 1.1f else 0f))
     }
 
@@ -210,10 +226,10 @@ private class AlbumMeshRenderer {
 
         updateAlphas(delta)
 
-        // 屏幕清为不透明黑，保证背景整体不透明。
+        // 屏幕清为不透明底色，保证背景整体不透明。
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         GLES20.glViewport(0, 0, surfaceWidth, surfaceHeight)
-        GLES20.glClearColor(0f, 0f, 0f, 1f)
+        GLES20.glClearColor(BASE_R, BASE_G, BASE_B, 1f)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
 
         val main = mainProgram ?: return
@@ -222,6 +238,9 @@ private class AlbumMeshRenderer {
 
         val uTime = frameTime / 10000f
         val aspect = surfaceWidth.toFloat() / surfaceHeight.toFloat()
+        val angle = (uTime + LOW_FREQ_VOLUME) * 2f
+        val sinAngle = sin(angle)
+        val cosAngle = cos(angle)
 
         for (state in meshStates) {
             // 1) 渲染网格到 FBO
@@ -233,11 +252,13 @@ private class AlbumMeshRenderer {
 
             main.use()
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-            main.setUniform1f("u_time", uTime)
             main.setUniform1f("u_aspect", aspect)
+            main.setUniform1f("u_overscan", OVERSCAN)
             main.setUniform1i("u_texture", 0)
-            main.setUniform1f("u_volume", 0f)
+            main.setUniform1f("u_volume", LOW_FREQ_VOLUME)
             main.setUniform1f("u_alpha", 1f)
+            main.setUniform1f("u_sinAngle", sinAngle)
+            main.setUniform1f("u_cosAngle", cosAngle)
             state.texture.bind()
             state.mesh.bind()
             state.mesh.draw()
@@ -340,7 +361,8 @@ private fun processAlbumBitmap(src: Bitmap): Bitmap {
         px[idx + 3] = (c ushr 24) and 0xFF
     }
 
-    blurChannels(px, w, h, radius = 2, quality = 4)
+    // 环形模糊：使纹理四方连续（配合 GLTexture 的 REPEAT 采样）。
+    blurChannelsToroidal(px, w, h, radius = 2, quality = 4)
 
     val out = IntArray(w * h)
     for (i in 0 until w * h) {
@@ -356,79 +378,62 @@ private fun clamp255(v: Float): Int = when {
     else -> (v + 0.5f).toInt()
 }
 
-/** 分离式盒式模糊，端口自 img.ts 的 blurImage（RGBA 展开数组）。 */
-private fun blurChannels(pixels: IntArray, width: Int, height: Int, radius: Int, quality: Int) {
-    val wm = width - 1
-    val hm = height - 1
-    val rad1 = radius + 1
-    val divx = radius + rad1
-    val divy = radius + rad1
-    val div2 = 1.0 / (divx * divy)
+/**
+ * 环形（toroidal）盒式模糊，端口自 img.ts 的 blurImageToroidal（RGBA 展开数组）：
+ * 索引越界按宽/高回绕，使左右边、上下边互为邻居。产出的图四方连续，配合 REPEAT 采样时
+ * 纹理边界与内部一样平滑——这是旋转采样越出 [0,1] 时不出现「折痕弧线」的关键。
+ */
+private fun blurChannelsToroidal(pixels: IntArray, width: Int, height: Int, radius: Int, quality: Int) {
+    val div = radius * 2 + 1
+    val div2 = 1.0 / (div * div)
 
     val r = IntArray(width * height)
     val g = IntArray(width * height)
     val b = IntArray(width * height)
     val a = IntArray(width * height)
-    val vmin = IntArray(maxOf(width, height))
-    val vmax = IntArray(maxOf(width, height))
 
     var q = quality
     while (q-- > 0) {
-        var yw = 0
-        var yi = 0
+        // 水平：对每行做滑动窗口，x 越界回绕
         for (y in 0 until height) {
-            var rsum = pixels[yw] * rad1
-            var gsum = pixels[yw + 1] * rad1
-            var bsum = pixels[yw + 2] * rad1
-            var asum = pixels[yw + 3] * rad1
-            for (i in 1..radius) {
-                val p = yw + ((if (i > wm) wm else i) shl 2)
+            val yw = y * width * 4
+            var rsum = 0; var gsum = 0; var bsum = 0; var asum = 0
+            for (i in -radius..radius) {
+                val p = yw + (((i + width) % width) shl 2)
                 rsum += pixels[p]; gsum += pixels[p + 1]; bsum += pixels[p + 2]; asum += pixels[p + 3]
             }
+            var yi = y * width
             for (x in 0 until width) {
                 r[yi] = rsum; g[yi] = gsum; b[yi] = bsum; a[yi] = asum
-                if (y == 0) {
-                    vmin[x] = (minOf(x + rad1, wm)) shl 2
-                    vmax[x] = (maxOf(x - radius, 0)) shl 2
-                }
-                val p1 = yw + vmin[x]
-                val p2 = yw + vmax[x]
+                val p1 = yw + (((x + radius + 1) % width) shl 2)
+                val p2 = yw + (((x - radius + width) % width) shl 2)
                 rsum += pixels[p1] - pixels[p2]
                 gsum += pixels[p1 + 1] - pixels[p2 + 1]
                 bsum += pixels[p1 + 2] - pixels[p2 + 2]
                 asum += pixels[p1 + 3] - pixels[p2 + 3]
                 yi++
             }
-            yw += width shl 2
         }
-
+        // 垂直：对行和结果做滑动窗口，y 越界回绕
         for (x in 0 until width) {
-            var yp = x
-            var rsum = r[yp] * rad1
-            var gsum = g[yp] * rad1
-            var bsum = b[yp] * rad1
-            var asum = a[yp] * rad1
-            for (i in 1..radius) {
-                yp += if (i > hm) 0 else width
-                rsum += r[yp]; gsum += g[yp]; bsum += b[yp]; asum += a[yp]
+            var rsum = 0; var gsum = 0; var bsum = 0; var asum = 0
+            for (i in -radius..radius) {
+                val p = ((i + height) % height) * width + x
+                rsum += r[p]; gsum += g[p]; bsum += b[p]; asum += a[p]
             }
-            var yi2 = x shl 2
+            var yi = x shl 2
             for (y in 0 until height) {
-                pixels[yi2] = (rsum * div2 + 0.5).toInt()
-                pixels[yi2 + 1] = (gsum * div2 + 0.5).toInt()
-                pixels[yi2 + 2] = (bsum * div2 + 0.5).toInt()
-                pixels[yi2 + 3] = (asum * div2 + 0.5).toInt()
-                if (x == 0) {
-                    vmin[y] = minOf(y + rad1, hm) * width
-                    vmax[y] = maxOf(y - radius, 0) * width
-                }
-                val p1 = x + vmin[y]
-                val p2 = x + vmax[y]
+                pixels[yi] = (rsum * div2 + 0.5).toInt()
+                pixels[yi + 1] = (gsum * div2 + 0.5).toInt()
+                pixels[yi + 2] = (bsum * div2 + 0.5).toInt()
+                pixels[yi + 3] = (asum * div2 + 0.5).toInt()
+                val p1 = ((y + radius + 1) % height) * width + x
+                val p2 = ((y - radius + height) % height) * width + x
                 rsum += r[p1] - r[p2]
                 gsum += g[p1] - g[p2]
                 bsum += b[p1] - b[p2]
                 asum += a[p1] - a[p2]
-                yi2 += width shl 2
+                yi += width shl 2
             }
         }
     }
@@ -491,9 +496,10 @@ private class MeshRenderThread(
                     val frameStart = System.nanoTime()
                     renderer.onDrawFrame()
                     EGL14.eglSwapBuffers(display, eglSurface)
-                    // 帧率上限 ~60fps，避免在不按 vsync 阻塞的设备上空转耗电。
+                    // 与桌面端一致限制在 30fps：背景本就是缓慢流动，省电优先。
+                    val frameIntervalMs = 1000L / TARGET_FPS
                     val elapsedMs = (System.nanoTime() - frameStart) / 1_000_000
-                    if (elapsedMs < 16) sleep(16 - elapsedMs)
+                    if (elapsedMs < frameIntervalMs) sleep(frameIntervalMs - elapsedMs)
                 } else {
                     sleep(16)
                 }
@@ -584,7 +590,7 @@ internal fun AlbumMeshBackground(
     coverBitmap: Bitmap?,
     coverKey: String,
     modifier: Modifier = Modifier,
-    flowSpeed: Float = 3f,
+    flowSpeed: Float = 1f,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     var view by remember { mutableStateOf<AlbumMeshBackgroundView?>(null) }

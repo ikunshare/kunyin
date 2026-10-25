@@ -59,7 +59,7 @@ fun SongInfoDialog(song: MusicItem, onDismiss: () -> Unit) {
         } catch (_: Exception) { status = failed }
     }
     val bodyHeight = LocalConfiguration.current.screenHeightDp.dp * 0.5f
-    AlertDialog(onDismissRequest = onDismiss,
+    GlassAlertDialog(onDismissRequest = onDismiss,
         title = { Text("${stringResource(R.string.song_info_title)} · ${song.title}", maxLines = 2, overflow = TextOverflow.Ellipsis) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -3,6 +3,7 @@ package com.ikunshare.music.ui.screens.player
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.view.View
 import android.view.ViewTreeObserver
 import android.view.WindowManager
 import androidx.compose.runtime.Composable
@@ -42,8 +43,13 @@ internal fun PlayerWindowEffects(active: Boolean = true) {
         fun applyPlayerWindow() {
             if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
             window.addFlags(keepScreenOn)
-            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller.hide(WindowInsetsCompat.Type.systemBars())
+            // BEHAVIOR_DEFAULT: with gesture navigation the back swipe works while the bars are hidden.
+            // TRANSIENT_BARS_BY_SWIPE spent the first back swipe on revealing the bars, so exiting took two.
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+            controller.hide(WindowInsetsCompat.Type.statusBars())
+            // Button navigation has no gesture to fall back on: keep its back button one tap away.
+            if (usesButtonNavigation(view)) controller.show(WindowInsetsCompat.Type.navigationBars())
+            else controller.hide(WindowInsetsCompat.Type.navigationBars())
         }
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -70,6 +76,16 @@ internal fun PlayerWindowEffects(active: Boolean = true) {
             else controller.hide(WindowInsetsCompat.Type.navigationBars())
         }
     }
+}
+
+/**
+ * Button (2/3-key) navigation reports a tappable navigation bar; gesture navigation only reserves
+ * gesture space. Status bar insets are tappable too, so only the bottom and side edges count.
+ */
+private fun usesButtonNavigation(view: View): Boolean {
+    val insets = ViewCompat.getRootWindowInsets(view) ?: return false
+    val tappable = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.tappableElement())
+    return tappable.bottom > 0 || tappable.left > 0 || tappable.right > 0
 }
 
 private tailrec fun Context.playerActivity(): Activity? = when (this) {

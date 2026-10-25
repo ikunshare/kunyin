@@ -106,6 +106,8 @@ fun LiquidSideTabs(
                 onDragStopped = {
                     val targetIndex = targetValue.fastRoundToInt().fastCoerceIn(0, tabsCount - 1)
                     onTabSelected(targetIndex)
+                    // 吸附到最近 tab，避免松手停在两项之间
+                    animateToValue(targetIndex.toFloat())
                     animationScope.launch {
                         offsetAnimation.animateTo(
                             0f,

@@ -148,6 +148,26 @@ class BaseLyricPlayer(
         return bridgeActive(lines, indexes)
     }
 
+    /**
+     * 激活集合下一次可能变化的播放时钟时间（下一行开始或某激活行合并结束，取先到者）。
+     * 在此之前 [matchLinesWithTime] 的结果不变，逐帧调用方可据此跳过重复匹配。
+     */
+    fun nextChangeTime(time: Long): Long {
+        if (!info.isSynced || info.lines.isEmpty()) return Long.MAX_VALUE
+        val effective = time + currentOffset
+        var next = Long.MAX_VALUE
+        for (index in info.lines.indices) {
+            val line = info.lines[index]
+            if (line.timestamp > effective) {
+                next = minOf(next, line.timestamp)
+                break
+            }
+            val end = merger.getMergedTime(index)
+            if (end > effective) next = minOf(next, end)
+        }
+        return if (next == Long.MAX_VALUE) next else next - currentOffset
+    }
+
     fun syncTime(time: Long): LyricPlayerMatch {
         val match = matchLinesWithTime(time)
         activeLines = match.lines

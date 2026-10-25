@@ -439,7 +439,7 @@ class DownloadManager(
 
                 fun doDownload(url: String): okhttp3.Response {
                     val request = Request.Builder().url(url).build()
-                    val call = com.ikunshare.music.utils.NetworkProxy.call(httpClient, request)
+                    val call = httpClient.newCall(request)
                     cancellationWatchers += launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
                         try { awaitCancellation() } finally { call.cancel() }
                     }
@@ -814,7 +814,7 @@ class DownloadManager(
                 var attempt = 0
                 while (true) {
                     currentCoroutineContext().ensureActive()
-                    val call = com.ikunshare.music.utils.NetworkProxy.call(httpClient, Request.Builder().url(downloadUrl).build())
+                    val call = httpClient.newCall(Request.Builder().url(downloadUrl).build())
                     val cancellation = launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
                         try { awaitCancellation() } finally { call.cancel() }
                     }
@@ -1115,7 +1115,7 @@ class DownloadManager(
         if (coverUrl.isBlank()) return null
         return try {
             val request = Request.Builder().url(coverUrl).build()
-            com.ikunshare.music.utils.NetworkProxy.call(httpClient, request).execute().use { resp ->
+            httpClient.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) {
                     Log.w(TAG, "Cover fetch HTTP ${resp.code} for $coverUrl")
                     return null

@@ -164,12 +164,7 @@ class MusicApplication : Application(), SingletonImageLoader.Factory {
 
         // 全局崩溃捕获 — 启动独立进程的崩溃提示页面
         setupCrashHandler()
-        // Establish the proxy decision before constructing providers or starting requests.
         appSettingsManager = AppSettingsManager(this)
-        appSettingsManager.settings.value.let { saved ->
-            com.ikunshare.music.utils.NetworkProxy.routing.configure(
-                com.ikunshare.music.utils.ProxyConfiguration(saved.proxyEnabled, saved.proxyHost, saved.proxyPort))
-        }
 
 
         // 初始化简繁转换查找表
@@ -314,8 +309,6 @@ class MusicApplication : Application(), SingletonImageLoader.Factory {
             CoroutineScope(Dispatchers.Main + SupervisorJob())
         scope.launch {
             appSettingsManager.settings.collect { s ->
-                com.ikunshare.music.utils.NetworkProxy.routing.configure(
-                    com.ikunshare.music.utils.ProxyConfiguration(s.proxyEnabled, s.proxyHost, s.proxyPort))
                 com.ikunshare.music.utils.HTTPUtils.httpLogEnabled = s.debugHttpLog
                 if (s.debugLogcat && logcatProcess == null) startLogcat()
                 else if (!s.debugLogcat && logcatProcess != null) stopLogcat()
@@ -389,7 +382,7 @@ class MusicApplication : Application(), SingletonImageLoader.Factory {
             }
             .components {
                 add(coil3.network.okhttp.OkHttpNetworkFetcherFactory(callFactory = {
-                    com.ikunshare.music.utils.NetworkProxy.factory(coverHttpClient)
+                    coverHttpClient
                 }))
             }
             .crossfade(true)

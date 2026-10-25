@@ -10,6 +10,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
@@ -55,6 +56,7 @@ import com.ikunshare.music.ui.screens.settings.QRLoginScreen
 import com.ikunshare.music.ui.screens.settings.SettingsScreen
 import com.ikunshare.music.ui.screens.settings.WyQRLoginScreen
 import com.ikunshare.music.ui.theme.Motion
+import com.ikunshare.music.ui.utils.bringIntoViewBarrier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -165,30 +167,34 @@ fun SoundNavHost(
                     // 原 beyondViewportPageCount=1 会处置搜索页导致 ViewModel 重建丢状态）。
                     beyondViewportPageCount = if (warm) 3 else 0
                 ) { page ->
-                    when (page) {
-                        0 -> SearchScreen(
-                            navController = navController,
-                            playerViewModel = playerViewModel,
-                            viewModelFactory = viewModelFactory,
-                            onSongClick = { _, song -> playerViewModel.playInTrial(song) }
-                        )
+                    // Pages kept alive off-screen may request bringIntoView (focused fields,
+                    // selected chips); the barrier keeps that from scrolling the pager itself.
+                    Box(Modifier.fillMaxSize().bringIntoViewBarrier()) {
+                        when (page) {
+                            0 -> SearchScreen(
+                                navController = navController,
+                                playerViewModel = playerViewModel,
+                                viewModelFactory = viewModelFactory,
+                                onSongClick = { _, song -> playerViewModel.playInTrial(song) }
+                            )
 
-                        1 -> PlaylistsScreen(
-                            navController = navController,
-                            playerViewModel = playerViewModel,
-                            viewModelFactory = viewModelFactory
-                        )
+                            1 -> PlaylistsScreen(
+                                navController = navController,
+                                playerViewModel = playerViewModel,
+                                viewModelFactory = viewModelFactory
+                            )
 
-                        2 -> DownloadScreen(
-                            navController = navController,
-                            viewModelFactory = viewModelFactory
-                        )
+                            2 -> DownloadScreen(
+                                navController = navController,
+                                viewModelFactory = viewModelFactory
+                            )
 
-                        3 -> SettingsScreen(
-                            navController = navController,
-                            viewModelFactory = viewModelFactory,
-                            isActive = pagerState.currentPage == 3 && currentEntry?.destination?.route == TABS_ROUTE
-                        )
+                            3 -> SettingsScreen(
+                                navController = navController,
+                                viewModelFactory = viewModelFactory,
+                                isActive = pagerState.currentPage == 3 && currentEntry?.destination?.route == TABS_ROUTE
+                            )
+                        }
                     }
                 }
             }

@@ -1,7 +1,6 @@
 package com.ikunshare.music.ui.components
 
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -23,7 +22,7 @@ fun CreatePlaylistDialog(
 ) {
     var name by remember { mutableStateOf("") }
 
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(stringResource(if (busy) R.string.playlist_saving else R.string.create_playlist_title)) },
         text = {

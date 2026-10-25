@@ -8,21 +8,14 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.graphics.TransformOrigin
 import com.ikunshare.music.ui.theme.Motion
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Download
@@ -30,9 +23,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,7 +34,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -79,106 +68,6 @@ val bottomNavItems = listOf(
     BottomNavItem(labelRes = R.string.nav_download, icon = Icons.Filled.Download),
     BottomNavItem(labelRes = R.string.nav_settings, icon = Icons.Filled.Settings)
 )
-
-
-@Composable
-fun BottomBarWithMiniPlayer(
-    navController: NavController,
-    isOnTabs: Boolean,
-    showMiniPlayer: Boolean,
-    playerViewModel: PlayerViewModel,
-    selectedTabIndex: Int,
-    onTabClick: (Int) -> Unit,
-    isCustomTheme: Boolean,
-    bottomBarOpacity: Float
-) {
-    val playerSheet = LocalPlayerSheet.current
-    val playerState by playerViewModel.uiState.collectAsState()
-    val progress = rememberPlaybackProgress(playerViewModel)
-    val uiColors = LocalUiColors.current
-    val barColor = if (isCustomTheme) uiColors.bottomBarColor
-    else uiColors.bottomBarColor.copy(alpha = uiColors.bottomBarColor.alpha * bottomBarOpacity)
-
-    Column {
-        AnimatedVisibility(
-            visible = showMiniPlayer,
-            enter = slideInVertically(Motion.smoothOffset) { it } + expandVertically(Motion.smoothSize),
-            exit = slideOutVertically(Motion.smoothOffset) { it } + shrinkVertically(Motion.smoothSize)
-        ) {
-            MiniPlayer(
-                song = playerState.currentSong,
-                isPlaying = playerState.isPlaying,
-                isLoading = playerState.isLoading,
-                progress = progress,
-                currentLyricText = playerState.currentLyricText,
-                onPlayPause = playerViewModel::togglePlayPause,
-                onPrevious = playerViewModel::previous,
-                onNext = playerViewModel::next,
-                onClick = {
-                    playerState.currentSong?.let { song ->
-                        playerSheet.open(song)
-                    }
-                },
-                barColor = barColor
-            )
-        }
-
-        if (isOnTabs) {
-            KunyinBottomNavBar(
-                selectedIndex = selectedTabIndex,
-                onTabClick = onTabClick,
-                barColor = barColor
-            )
-        } else {
-            // 没有 NavigationBar 时，手动填充导航栏高度
-            // 避免三键导航遮挡 MiniPlayer 和内容
-            Spacer(
-                Modifier
-                    .background(barColor)
-                    .fillMaxWidth()
-                    .windowInsetsBottomHeight(WindowInsets.navigationBars)
-            )
-        }
-    }
-}
-
-@Composable
-private fun KunyinBottomNavBar(
-    selectedIndex: Int,
-    onTabClick: (Int) -> Unit,
-    barColor: Color = MaterialTheme.colorScheme.surface
-) {
-    NavigationBar(
-        containerColor = barColor,
-        contentColor = MaterialTheme.colorScheme.onSurface
-    ) {
-        bottomNavItems.forEachIndexed { index, item ->
-            NavigationBarItem(
-                selected = index == selectedIndex,
-                onClick = { onTabClick(index) },
-                icon = {
-                    Icon(
-                        imageVector = item.icon,
-                        contentDescription = stringResource(item.labelRes)
-                    )
-                },
-                label = {
-                    Text(
-                        text = stringResource(item.labelRes),
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.tertiary,
-                    selectedTextColor = MaterialTheme.colorScheme.tertiary,
-                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    indicatorColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
-                )
-            )
-        }
-    }
-}
 
 
 @Composable
@@ -277,14 +166,12 @@ private fun LiquidGlassBottomNavBar(
 ) {
     val isLightTheme = !androidx.compose.foundation.isSystemInDarkTheme()
     val accentColor = MaterialTheme.colorScheme.tertiary
-    val contentColor = if (isLightTheme) Color.Black else Color.White
     val containerColor = if (enableBlur) {
         if (isLightTheme) Color.White.copy(alpha = 0.3f)
         else Color.Black.copy(alpha = 0.3f)
     } else {
         MaterialTheme.colorScheme.surfaceContainer
     }
-    ColorFilter.tint(contentColor)
 
     var currentSelectedIndex by remember { mutableIntStateOf(selectedIndex) }
 
@@ -381,7 +268,7 @@ fun LiquidGlassSideNavBar(
                         imageVector = item.icon,
                         contentDescription = stringResource(item.labelRes),
                         tint = if (currentSelectedIndex == index) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(28f.dp)
+                        modifier = Modifier.size(28.dp)
                     )
                 }
             }

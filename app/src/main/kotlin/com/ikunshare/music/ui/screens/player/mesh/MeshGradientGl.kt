@@ -26,6 +26,7 @@ attribute vec2 a_uv;
 varying vec3 v_color;
 varying vec2 v_uv;
 uniform float u_aspect;
+uniform float u_overscan;
 void main() {
     v_color = a_color;
     v_uv = a_uv;
@@ -35,7 +36,8 @@ void main() {
     } else {
         pos.x /= u_aspect;
     }
-    gl_Position = vec4(pos, 0.0, 1.0);
+    // 过扫描（桌面端 CSS scale(1.3)）：网格外缘与 patch 接缝裁出屏幕。
+    gl_Position = vec4(pos * u_overscan, 0.0, 1.0);
 }
 """
 
@@ -44,9 +46,10 @@ precision highp float;
 varying vec3 v_color;
 varying vec2 v_uv;
 uniform sampler2D u_texture;
-uniform float u_time;
 uniform float u_volume;
 uniform float u_alpha;
+uniform float u_sinAngle;
+uniform float u_cosAngle;
 
 const float INV_255 = 1.0 / 255.0;
 const float HALF_INV_255 = 0.5 / 255.0;
@@ -57,21 +60,19 @@ float gradientNoise(in vec2 uv) {
     return fract(GRADIENT_NOISE_A * fract(dot(uv, GRADIENT_NOISE_B)));
 }
 
-vec2 rot(vec2 v, float angle) {
-    float s = sin(angle);
-    float c = cos(angle);
-    return vec2(c * v.x - s * v.y, s * v.x + c * v.y);
-}
-
 void main() {
     float volumeEffect = u_volume * 2.0;
-    float timeVolume = u_time + u_volume;
 
     float dither = INV_255 * gradientNoise(gl_FragCoord.xy) - HALF_INV_255;
-    vec2 centeredUV = v_uv - vec2(0.5);
-    vec2 rotatedUV = rot(centeredUV, timeVolume * 2.0);
-    // 缩到内圈采样：角落最远约 0.995，永不触及纹理边界，避免 clamp 造成的接缝。
-    vec2 finalUV = rotatedUV * (0.7 * max(0.001, 1.0 - volumeEffect)) + vec2(0.5);
+
+    // 与桌面端 mesh.frag.glsl 一致：偏心旋转采样；纹理是环形模糊 + REPEAT 的
+    // 四方连续图，采样越出 [0,1] 依然无缝，无需缩到内圈。
+    vec2 centeredUV = v_uv - vec2(0.2);
+    vec2 rotatedUV = vec2(
+        u_cosAngle * centeredUV.x - u_sinAngle * centeredUV.y,
+        u_sinAngle * centeredUV.x + u_cosAngle * centeredUV.y
+    );
+    vec2 finalUV = rotatedUV * max(0.001, 1.0 - volumeEffect) + vec2(0.5);
 
     vec4 result = texture2D(u_texture, finalUV);
 
@@ -193,8 +194,11 @@ internal class GLTexture(bitmap: Bitmap) {
         GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        // REPEAT + 环形模糊后的四方连续纹理：旋转采样越出 [0,1] 时依旧无缝。
+        // 不能用 MIRRORED_REPEAT——镜像折返线上颜色梯度反向，会留下一条随旋转
+        // 缓慢移动的「折痕弧线」。纹理是 32x32 POT，ES2 下 REPEAT 合法。
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_REPEAT)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_REPEAT)
     }
 
     fun bind() = GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex)
@@ -391,11 +395,7 @@ internal class BHPMesh(
 
     fun updateMesh() {
         val subDivM1 = subDivisions - 1
-        val tW = subDivM1 * (cpHeight - 1)
-        val tH = subDivM1 * (cpWidth - 1)
         val invSubDivM1 = if (subDivM1 == 0) 0f else 1f / subDivM1
-        val invTH = if (tH == 0) 0f else 1f / tH
-        val invTW = if (tW == 0) 0f else 1f / tW
 
         // 预计算 [norm^3, norm^2, norm, 1]
         val normPowers = FloatArray(subDivisions * 4)
@@ -420,8 +420,6 @@ internal class BHPMesh(
                 precompute(tmpX, xAcc)
                 precompute(tmpY, yAcc)
 
-                val sX = x.toFloat() / (cpWidth - 1)
-                val sY = y.toFloat() / (cpHeight - 1)
                 val baseVx = y * subDivisions
                 val baseVy = x * subDivisions
 
@@ -445,8 +443,11 @@ internal class BHPMesh(
 
                         val px = v0 * ux[0] + v1 * ux[1] + v2 * ux[2] + v3 * ux[3]
                         val py = v0 * uy[0] + v1 * uy[1] + v2 * uy[2] + v3 * uy[3]
-                        val uvX = sX + v * invTH
-                        val uvY = 1f - sY - u * invTW
+                        // UV 随网格几何线性映射（而非 per-patch 参数均匀展开）：
+                        // per-patch 参数化使 UV 梯度在 patch 边界跳变 → 采样密度突变，
+                        // 强色差封面旋转流动时会在边界露出「杂线/接缝」；线性映射梯度连续。
+                        val uvX = (px + 1f) / 2f
+                        val uvY = (py + 1f) / 2f
                         setVertexData(vxOffset, vy, px, py, 1f, 1f, 1f, uvX, uvY)
                     }
                 }

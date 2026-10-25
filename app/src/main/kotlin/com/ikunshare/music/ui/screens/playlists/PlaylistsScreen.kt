@@ -41,7 +41,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material3.AlertDialog
+import com.ikunshare.music.ui.components.GlassAlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -251,7 +251,7 @@ fun PlaylistsScreen(
     }
 
     playlistToDelete?.let { playlist ->
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { playlistToDelete = null },
             title = { Text(stringResource(R.string.delete_playlist_title)) },
             text = { Text(stringResource(R.string.delete_playlist_confirm, playlist.name)) },
@@ -275,7 +275,7 @@ fun PlaylistsScreen(
     }
 
     platformPlaylistToCopy?.let { (source, pl) ->
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { platformPlaylistToCopy = null },
             title = { Text(stringResource(R.string.create_local_copy)) },
             text = {
@@ -825,9 +825,7 @@ private fun WidePlaylistsLayout(
                 onDownload = { showQualityPicker = true },
                 onAddToPlaylist = { showPlaylistPicker = true },
                 onRemove = onRemove,
-                removeLabel = removeLabel,
-                floatingBottomBar = appSettings.floatingBottomBar,
-                liquidGlass = appSettings.liquidGlassMode
+                removeLabel = removeLabel
             )
         }
     }
@@ -927,7 +925,7 @@ private fun WidePlaylistsLayout(
 
     // 删除确认对话框
     if (deleteSong != null) {
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { if (!playlistWrites.isWriting) deleteSong = null },
             title = { Text(stringResource(R.string.confirm)) },
             text = {
@@ -974,7 +972,7 @@ private fun WidePlaylistsLayout(
         val totalCount = songs.size
         var posInput by remember(reorderSong) { mutableStateOf(currentPos.toString()) }
 
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { reorderSong = null },
             title = { Text(stringResource(R.string.reorder_title)) },
             text = {
@@ -1041,7 +1039,7 @@ private fun WidePlaylistsLayout(
             onPlay = { playerViewModel.setPlaylistAndPlay(listOf(it), 0) }, onDismiss = { duplicateTarget = null })
     }
     if (showWideImportPlatformDialog) {
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { showWideImportPlatformDialog = false },
             title = { Text(stringResource(R.string.select_import_platform)) },
             text = {
@@ -1100,7 +1098,7 @@ private fun WidePlaylistsLayout(
             else -> ""
         }
 
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { if (!isImporting) showWideImportIdDialog = false },
             title = { Text(stringResource(R.string.import_platform_songs, platformLabel)) },
             text = {
@@ -1401,7 +1399,7 @@ private fun ImportPlaylistDialog(
 
     val selectedDisplayName = availableSources.find { it.first == selectedSource }?.second ?: ""
 
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.import_playlist_title)) },
         text = {

@@ -218,7 +218,6 @@ fun PlaylistScreen(
             },
             bottomBar = {
                 if (selectionMode && selectedSongs.isNotEmpty()) {
-                    val appSettings by viewModelFactory.appSettingsManager.settings.collectAsState()
                     val onRemoveSelected: (() -> Unit)? =
                         if (uiState.isBookmarked && uiState.isOnlinePlaylist) {
                             {
@@ -269,9 +268,7 @@ fun PlaylistScreen(
                             showPlaylistPicker = true
                         },
                         onRemove = onRemoveSelected,
-                        removeLabel = stringResource(R.string.remove_from_playlist),
-                        floatingBottomBar = appSettings.floatingBottomBar,
-                        liquidGlass = appSettings.liquidGlassMode
+                        removeLabel = stringResource(R.string.remove_from_playlist)
                     )
                 }
             },

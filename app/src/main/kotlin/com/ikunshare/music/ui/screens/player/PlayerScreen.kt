@@ -50,7 +50,6 @@ import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -107,6 +106,7 @@ import com.ikunshare.music.ui.KunyinViewModelFactory
 import com.ikunshare.music.ui.components.AddToPlaylistDialog
 import com.ikunshare.music.ui.components.CreatePlaylistDialog
 import com.ikunshare.music.ui.components.ErrorState
+import com.ikunshare.music.ui.components.GlassAlertDialog
 import com.ikunshare.music.ui.components.LoadingIndicator
 import com.ikunshare.music.ui.components.SleepTimerDialog
 import com.ikunshare.music.ui.screens.lyrics.LyricsViewModel
@@ -1127,7 +1127,7 @@ private fun PlayQueueSheet(
 
     // 清空播放列表二次确认
     if (showClearConfirm) {
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { showClearConfirm = false },
             title = { Text(stringResource(R.string.clear_main_queue)) },
             text = { Text(stringResource(R.string.clear_main_queue_confirm)) },
@@ -1244,9 +1244,9 @@ internal fun PlayerBackground(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        0f to Color.Black.copy(alpha = 0.24f),
+                        0f to Color.Black.copy(alpha = 0.26f),
                         0.42f to Color.Black.copy(alpha = 0.08f),
-                        1f to Color.Black.copy(alpha = 0.42f)
+                        1f to Color.Black.copy(alpha = 0.44f)
                     )
                 )
         )

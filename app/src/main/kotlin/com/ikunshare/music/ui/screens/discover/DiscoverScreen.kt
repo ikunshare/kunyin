@@ -21,6 +21,7 @@ import com.ikunshare.music.manager.discovery.discoveryPlaylistSorts
 import com.ikunshare.music.manager.discovery.canSortDiscoveryCategory
 import com.ikunshare.music.ui.KunyinViewModelFactory
 import com.ikunshare.music.ui.components.*
+import com.ikunshare.music.ui.components.GlassAlertDialog
 import com.ikunshare.music.ui.navigation.Screen
 import com.ikunshare.music.ui.utils.LocalFloatingBottomBarReserve
 
@@ -88,7 +89,7 @@ fun DiscoverScreen(nav: NavController, factory: KunyinViewModelFactory) {
             }
         }
     }
-    if (showCategories) AlertDialog(onDismissRequest = { showCategories = false }, title = { Text("歌单分类") },
+    if (showCategories) GlassAlertDialog(onDismissRequest = { showCategories = false }, title = { Text("歌单分类") },
         text = {
             when {
                 state.categoriesLoading -> Box(Modifier.fillMaxWidth(), Alignment.Center) { CircularProgressIndicator() }

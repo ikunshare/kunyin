@@ -29,7 +29,7 @@ import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material3.AlertDialog
+import com.ikunshare.music.ui.components.GlassAlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -319,9 +319,7 @@ fun LocalPlaylistScreen(
                             showPlaylistPicker = true
                         },
                         onRemove = onRemove,
-                        removeLabel = removeLabel,
-                        floatingBottomBar = viewModelFactory.appSettingsManager.settings.collectAsState().value.floatingBottomBar,
-                        liquidGlass = viewModelFactory.appSettingsManager.settings.collectAsState().value.liquidGlassMode
+                        removeLabel = removeLabel
                     )
                 }
             },
@@ -729,7 +727,7 @@ fun LocalPlaylistScreen(
             if (isFavoritesPlaylist) R.string.unfavorite
             else R.string.remove_from_playlist
         )
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { if (!playlistWrites.isWriting) deleteSong = null },
             title = { Text(stringResource(R.string.confirm)) },
             text = {
@@ -769,7 +767,7 @@ fun LocalPlaylistScreen(
         val totalCount = songs.size
         var posInput by remember(reorderSong) { mutableStateOf(currentPos.toString()) }
 
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { reorderSong = null },
             title = { Text(stringResource(R.string.reorder_title)) },
             text = {
@@ -959,7 +957,7 @@ fun LocalPlaylistScreen(
             onPlay = { playerViewModel.setPlaylistAndPlay(listOf(it), 0) }, onDismiss = { showDuplicatesDialog = false })
     }
     if (showImportPlatformDialog) {
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { showImportPlatformDialog = false },
             title = { Text(stringResource(R.string.select_import_platform)) },
             text = {
@@ -1020,7 +1018,7 @@ fun LocalPlaylistScreen(
             else -> ""
         }
 
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { if (!isImporting) showImportIdDialog = false },
             title = { Text(stringResource(R.string.import_platform_songs, platformLabel)) },
             text = {

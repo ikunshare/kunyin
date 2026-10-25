@@ -10,9 +10,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.android.awaitFrame
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlin.math.abs
 
 class DampedDragAnimation(
@@ -94,7 +96,15 @@ class DampedDragAnimation(
             awaitFrame()
             if (value != targetValue) {
                 val threshold = (valueRange.endInclusive - valueRange.start) * 0.025f
-                snapshotFlow { valueAnimation.value }.first { abs(it - valueAnimation.targetValue) < threshold }
+                // 等待值接近目标，但兜底 300ms：松手停在两项之间时动画早已收敛，
+                // 无限等待会让按下态（放大/透镜）卡住
+                try {
+                    withTimeout(300L) {
+                        snapshotFlow { valueAnimation.value }
+                            .first { abs(it - valueAnimation.targetValue) < threshold }
+                    }
+                } catch (_: TimeoutCancellationException) {
+                }
             }
             launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
             launch { scaleXAnimation.animateTo(initialScale, scaleXAnimationSpec) }

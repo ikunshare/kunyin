@@ -10,29 +10,29 @@ import com.google.gson.Gson
  */
 data class CustomThemeColors(
     // Material 基础色
-    val primary: Long = 0xFF6366F1,
-    val secondary: Long = 0xFF4338CA,
-    val tertiary: Long = 0xFF22C55E,
-    val background: Long = 0xFF0F0F23,
-    val surface: Long = 0xFF1A1A2E,
-    val surfaceVariant: Long = 0xFF2A2A3E,
-    val onBackground: Long = 0xFFF8FAFC,
-    val onSurfaceVariant: Long = 0xFF94A3B8,
-    val error: Long = 0xFFEF4444,
-    val outline: Long = 0xFF3F3F5A,
+    val primary: Long = 0xFFFF8A4C,
+    val secondary: Long = 0xFFFFC978,
+    val tertiary: Long = 0xFFFFB437,
+    val background: Long = 0xFF0C0C0E,
+    val surface: Long = 0xFF151518,
+    val surfaceVariant: Long = 0xFF212126,
+    val onBackground: Long = 0xFFF4F4F6,
+    val onSurfaceVariant: Long = 0xFF9C9CA6,
+    val error: Long = 0xFFFF5A5F,
+    val outline: Long = 0xFF35353C,
 
     // 高亮色
     // 注意：歌词颜色已从主题自定义中移除，统一由主题色派生并锁定，见 Theme.kt。
-    val selectionHighlight: Long = 0xFF22C55E,     // 选择歌曲高亮遮罩
+    val selectionHighlight: Long = 0xFFFFB437,     // 选择歌曲高亮遮罩
 
     // 底栏/搜索栏背景色（含透明度）
-    val bottomBarColor: Long = 0xE61A1A2E,         // surface ~90% alpha
+    val bottomBarColor: Long = 0xE6151518,         // surface ~90% alpha
 
     // 歌曲卡片背景色（含透明度）
-    val songCardColor: Long = 0xFF1A1A2E,           // surface
+    val songCardColor: Long = 0xFF151518,           // surface
 
     // 弹窗背景色
-    val dialogBackground: Long = 0xFF242438          // surfaceContainerHigh
+    val dialogBackground: Long = 0xFF1F1F24          // surfaceContainerHigh
 ) {
     companion object {
         private val gson = Gson()

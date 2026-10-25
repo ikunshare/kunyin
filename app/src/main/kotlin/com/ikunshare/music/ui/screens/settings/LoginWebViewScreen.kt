@@ -27,7 +27,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -50,9 +49,6 @@ import com.ikunshare.music.R
 import com.ikunshare.music.manager.CredentialManager
 import com.ikunshare.music.platform.qq.QQCredentials
 import com.ikunshare.music.platform.wy.WyCredentials
-import com.ikunshare.music.utils.NetworkProxy
-import com.ikunshare.music.utils.NetworkWebViewProxy
-import com.ikunshare.music.utils.WebProxyPhase
 
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled")
@@ -74,25 +70,13 @@ fun LoginWebViewScreen(
     }
 
     val context = LocalContext.current
-    val coordinator = remember { NetworkWebViewProxy.coordinator }
-    val proxyStatus by coordinator.status.collectAsState()
-    val routingStatus by NetworkProxy.routing.status.collectAsState()
-    val canLoad = proxyStatus.allowsLoad(routingStatus)
     var webView by remember(provider) { mutableStateOf<WebView?>(null) }
     var initialLoaded by remember(provider) { mutableStateOf(false) }
     var loading by remember(provider) { mutableStateOf(false) }
     var pageError by remember(provider) { mutableStateOf(false) }
     var rendererFailed by remember(provider) { mutableStateOf(false) }
-    var resumeUrl by remember(provider) { mutableStateOf<String?>(null) }
-    LaunchedEffect(canLoad, webView) {
-        if (canLoad && !initialLoaded) webView?.let { initialLoaded = true; it.loadUrl(url) }
-        else if (canLoad && resumeUrl != null) webView?.let { view ->
-            val pending = resumeUrl!!; resumeUrl = null; view.loadUrl(pending)
-        }
-        else if (!canLoad) webView?.let { view ->
-            if (loading) { resumeUrl = view.url ?: url; loading = false }
-            view.stopLoading()
-        }
+    LaunchedEffect(webView) {
+        if (!initialLoaded) webView?.let { initialLoaded = true; it.loadUrl(url) }
     }
 
     Scaffold(
@@ -108,7 +92,7 @@ fun LoginWebViewScreen(
                     }
                 },
                 actions = {
-                    TextButton(enabled = canLoad && webView != null && !rendererFailed && !pageError, onClick = {
+                    TextButton(enabled = webView != null && !rendererFailed && !pageError, onClick = {
                         webView?.let { wv ->
                             val currentUrl = wv.url ?: url
                             val cookies = CookieManager.getInstance().getCookie(currentUrl)
@@ -171,32 +155,18 @@ fun LoginWebViewScreen(
                     modifier = Modifier.fillMaxSize()
                 )
             }
-            if (loading && canLoad) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
-            if (!canLoad || pageError || rendererFailed) {
+            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+            if (pageError || rendererFailed) {
                 Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
                     Column(Modifier.align(Alignment.Center).fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                        val waiting = !canLoad && proxyStatus.phase in listOf(WebProxyPhase.WAITING, WebProxyPhase.APPLYING, WebProxyPhase.READY)
-                        if (waiting) CircularProgressIndicator()
-                        Text(stringResource(when {
-                            canLoad && (pageError || rendererFailed) -> R.string.web_login_load_failed
-                            proxyStatus.phase == WebProxyPhase.UNSUPPORTED -> R.string.web_proxy_unsupported
-                            proxyStatus.phase == WebProxyPhase.FAILED -> R.string.web_proxy_failed
-                            else -> R.string.web_proxy_applying
-                        }), modifier = Modifier.padding(16.dp))
-                        if (!waiting) TextButton(onClick = {
-                            if (!canLoad) coordinator.retry()
-                            else if (pageError || rendererFailed) {
-                                pageError = false
-                                if (rendererFailed) rendererFailed = false else webView?.reload()
-                            }
+                        Text(stringResource(R.string.web_login_load_failed), modifier = Modifier.padding(16.dp))
+                        TextButton(onClick = {
+                            pageError = false
+                            if (rendererFailed) rendererFailed = false else webView?.reload()
                         }) { Text(stringResource(R.string.retry)) }
                     }
                 }
-            } else if (proxyStatus.phase == WebProxyPhase.UNSUPPORTED) {
-                Text(stringResource(R.string.web_proxy_system), Modifier.align(Alignment.BottomCenter)
-                    .fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(12.dp),
-                    style = MaterialTheme.typography.bodySmall)
             }
         }
     }

@@ -121,8 +121,7 @@ object MobileQRLogin {
 
                 when {
                     msg.serverReference != null -> {
-                        val newWs = com.ikunshare.music.utils.NetworkProxy.webSocket(client,
-                            buildRequest("/${msg.serverReference}"), this
+                        val newWs = client.newWebSocket(buildRequest("/${msg.serverReference}"), this
                         )
                         activeWs.set(newWs)
                         onWebSocketChanged(newWs)
@@ -168,7 +167,7 @@ object MobileQRLogin {
             }
         }
 
-        val ws = com.ikunshare.music.utils.NetworkProxy.webSocket(client, buildRequest(), listener)
+        val ws = client.newWebSocket(buildRequest(), listener)
         activeWs.set(ws)
         return ws
     }

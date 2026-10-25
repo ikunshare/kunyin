@@ -1,5 +1,6 @@
 package com.ikunshare.music.ui.screens.player
 
+import android.annotation.SuppressLint
 import com.ikunshare.music.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -21,7 +22,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
+import com.ikunshare.music.ui.components.GlassDialog
+import com.ikunshare.music.ui.components.glassDialogSurface
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import com.ikunshare.music.manager.comments.CommentItem
@@ -43,6 +45,7 @@ internal fun commentRows(comments: List<CommentItem>): List<CommentRow> {
     }
 }
 
+@SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
 internal fun CommentDialog(song: MusicItem?, viewModel: CommentsViewModel, onDismiss: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
@@ -54,16 +57,16 @@ internal fun CommentDialog(song: MusicItem?, viewModel: CommentsViewModel, onDis
     val rows = remember(active.comments) { commentRows(active.comments) }
     val brokenAvatars = remember(song?.uniqueKey) { mutableStateMapOf<String, Boolean>() }
     val dialogHeight = (LocalConfiguration.current.screenHeightDp.dp * 0.82f).coerceAtMost(640.dp)
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    GlassDialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         BoxWithConstraints(Modifier.widthIn(max = 752.dp).fillMaxWidth().safeDrawingPadding().padding(16.dp), contentAlignment = Alignment.Center) {
-            Surface(Modifier.widthIn(max = 720.dp).fillMaxWidth().height(dialogHeight),
-                shape = RoundedCornerShape(24.dp), tonalElevation = 6.dp) {
+            Box(Modifier.widthIn(max = 720.dp).fillMaxWidth().height(dialogHeight).glassDialogSurface(24.dp)) {
                 Column(Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(song?.title.orEmpty().ifEmpty { stringResource(R.string.song_comments) },
                                 style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (!song?.artist.isNullOrEmpty()) Text(song!!.artist, style = MaterialTheme.typography.bodySmall,
+                            if (!song?.artist.isNullOrEmpty()) Text(
+                                song.artist, style = MaterialTheme.typography.bodySmall,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         IconButton(onClick = viewModel::refresh) { Icon(Icons.Default.Refresh, stringResource(R.string.comments_refresh)) }

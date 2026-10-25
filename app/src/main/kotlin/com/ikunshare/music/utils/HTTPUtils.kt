@@ -111,7 +111,7 @@ class HTTPUtils {
 
         /** Cancellation closes the actual call, including proxy waits and response-body reads. */
         private suspend fun executeCancellable(request: Request): HTTPResponse = suspendCancellableCoroutine { continuation ->
-            val call = NetworkProxy.call(cancellableClient, request)
+            val call = cancellableClient.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
@@ -171,7 +171,7 @@ class HTTPUtils {
             val requestBuilder = Request.Builder().url(url)
             headers?.forEach { (k, v) -> requestBuilder.addHeader(k, v) }
             return try {
-                com.ikunshare.music.utils.NetworkProxy.call(noRedirectClient, requestBuilder.build()).execute().use { response ->
+                noRedirectClient.newCall(requestBuilder.build()).execute().use { response ->
                     if (response.code in 301..308) response.header("Location") else null
                 }
             } catch (_: IOException) {
@@ -185,7 +185,7 @@ class HTTPUtils {
                 request.headers.forEach { (k, v) -> Log.d(TAG, "  H: $k: $v") }
             }
             return try {
-                com.ikunshare.music.utils.NetworkProxy.call(requestClient, request).execute().use { response ->
+                requestClient.newCall(request).execute().use { response ->
                     val bytes = response.body.bytes()
                     val bodyString = String(bytes, Charsets.UTF_8)
 

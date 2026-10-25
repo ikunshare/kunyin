@@ -59,7 +59,7 @@ fun LiquidBottomTabs(
     backdrop: Backdrop,
     tabsCount: Int,
     modifier: Modifier = Modifier,
-    accentColor: Color = if (!isSystemInDarkTheme()) Color(0xFF0088FF) else Color(0xFF0091FF),
+    accentColor: Color = if (!isSystemInDarkTheme()) Color(0xFFB35F00) else Color(0xFFFFB437),
     containerColor: Color = if (!isSystemInDarkTheme()) Color(0xFFFAFAFA).copy(0.4f) else Color(
         0xFF121212
     ).copy(0.4f),
@@ -112,6 +112,8 @@ fun LiquidBottomTabs(
                 onDragStopped = {
                     val targetIndex = targetValue.fastRoundToInt().fastCoerceIn(0, tabsCount - 1)
                     onTabSelected(targetIndex)
+                    // 吸附到最近 tab，避免松手停在两项之间
+                    animateToValue(targetIndex.toFloat())
                     animationScope.launch {
                         offsetAnimation.animateTo(
                             0f,

@@ -458,7 +458,7 @@ class DecryptingMediaDataSource(
                 .header("Range", rangeHeader)
                 .build()
 
-            val call = com.ikunshare.music.utils.NetworkProxy.call(client, request)
+            val call = client.newCall(request)
             currentCall = call
 
             val response = try {

@@ -38,8 +38,8 @@ data class UiColors(
 
 val LocalUiColors = staticCompositionLocalOf {
     UiColors(
-        selectionHighlight = Color(0xFF22C55E).copy(alpha = 0.12f),
-        bottomBarColor = Color(0xFF1A1A2E),
-        songCardColor = Color(0xFF1A1A2E)
+        selectionHighlight = Color(0xFFFFB437).copy(alpha = 0.12f),
+        bottomBarColor = Color(0xFF151518),
+        songCardColor = Color(0xFF151518)
     )
 }

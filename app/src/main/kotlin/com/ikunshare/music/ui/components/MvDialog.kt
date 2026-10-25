@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -80,7 +79,7 @@ fun MvDialog(
     }
 
     if (loading || qualities.isNotEmpty()) {
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = onDismiss,
             title = { Text(stringResource(R.string.mv_select_quality)) },
             text = {

@@ -20,7 +20,6 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Queue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -33,7 +32,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ikunshare.music.R
-import com.ikunshare.music.ui.theme.LocalUiColors
 import com.ikunshare.music.ui.utils.LocalFloatingBottomBarReserve
 
 private data class SelectionAction(
@@ -52,8 +50,6 @@ fun SelectionBottomBar(
     onPlayNext: (() -> Unit)? = null,
     onRemove: (() -> Unit)? = null,
     removeLabel: String = stringResource(R.string.delete),
-    floatingBottomBar: Boolean = false,
-    liquidGlass: Boolean = false,
     busy: Boolean = false
 ) {
     val tertiary = MaterialTheme.colorScheme.tertiary
@@ -105,70 +101,19 @@ fun SelectionBottomBar(
             }
             Spacer(Modifier.height(if (outerReserve > 0.dp) outerReserve + 8.dp else 8.dp))
         }
-    } else if (floatingBottomBar) {
-        FloatingSelectionBar(
-            countText = countText,
-            actions = availableActions,
-            liquidGlass = liquidGlass
-        )
     } else {
-        ClassicSelectionBar(
-            countText = countText,
-            actions = availableActions
-        )
-    }
-}
-
-@Composable
-private fun ClassicSelectionBar(
-    countText: String,
-    actions: List<SelectionAction>
-) {
-    // 与主底栏完全共用 bottomBarColor，连透明度一起继承，避免出现颜色断层。
-    val barColor = LocalUiColors.current.bottomBarColor
-    Surface(
-        color = barColor,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-        ) {
-            Text(
-                text = countText,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 4.dp)
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                actions.forEach { action ->
-                    CompactSelectionAction(action)
-                }
-            }
-        }
+        FloatingSelectionBar(countText = countText, actions = availableActions)
     }
 }
 
 @Composable
 private fun FloatingSelectionBar(
     countText: String,
-    actions: List<SelectionAction>,
-    liquidGlass: Boolean
+    actions: List<SelectionAction>
 ) {
     val outerReserve = LocalFloatingBottomBarReserve.current
     val isLight = !isSystemInDarkTheme()
-    val surfaceColor = when {
-        liquidGlass && isLight -> Color.White.copy(alpha = 0.55f)
-        liquidGlass -> Color.Black.copy(alpha = 0.45f)
-        else -> MaterialTheme.colorScheme.surfaceContainerHigh
-    }
+    val surfaceColor = if (isLight) Color.White.copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.45f)
 
     val bottomReserve: Dp = if (outerReserve > 0.dp) outerReserve + 8.dp else 16.dp
 

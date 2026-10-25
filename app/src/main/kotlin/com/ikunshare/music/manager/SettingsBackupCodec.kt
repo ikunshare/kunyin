@@ -13,7 +13,6 @@ internal object SettingsBackupCodec {
     private val aliases = linkedMapOf(
         "showListOperationButtons" to "list.showOperationButtons",
         "albumListMode" to "list.albumListMode", "albumSortAsc" to "list.albumSortAsc",
-        "proxyEnabled" to "network.proxy.enable", "proxyHost" to "network.proxy.host", "proxyPort" to "network.proxy.port",
         "showTranslation" to "lyrics.showTranslation", "showRomanization" to "lyrics.showRomanization",
         "pushLyricsToMediaSession" to "lyrics.bluetoothLyric",
         "floatingLyricsEnabled" to "lyrics.desktopEnabled", "floatingLyricsLocked" to "lyrics.desktopLocked",
@@ -87,7 +86,6 @@ internal object SettingsBackupCodec {
             supplied.addProperty("maxCacheSizeMb", mb.toInt())
         }
         if (!desktop) addFlatFields()
-        if (!source.has("floatingBottomBar") && source.has("liquidGlassMode")) supplied.add("floatingBottomBar", source["liquidGlassMode"])
         var count = 0
         for ((field, value) in supplied.entrySet()) {
             if (value.isJsonNull) continue // Older optional fields can be null.

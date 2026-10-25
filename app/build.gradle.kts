@@ -91,6 +91,7 @@ android {
             isJniDebuggable = true
             isMinifyEnabled = false
             multiDexEnabled = false
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
     lint {

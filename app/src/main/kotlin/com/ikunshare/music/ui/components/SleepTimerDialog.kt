@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.MaterialTheme
@@ -98,7 +97,7 @@ private fun ActiveTimerDialog(
         SleepTimerAction.EXIT -> stringResource(R.string.sleep_timer_action_exit)
     }
 
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.sleep_timer_active)) },
         text = {
@@ -164,7 +163,7 @@ private fun SetTimerDialog(
         selectedSongs > 0 || customInput.toIntOrNull()?.let { it > 0 } == true
     }
 
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.sleep_timer)) },
         text = {

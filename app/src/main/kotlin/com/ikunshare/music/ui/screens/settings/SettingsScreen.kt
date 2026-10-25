@@ -54,6 +54,7 @@ import androidx.navigation.NavController
 import com.ikunshare.music.MusicApplication
 import com.ikunshare.music.manager.*
 import com.ikunshare.music.ui.KunyinViewModelFactory
+import com.ikunshare.music.ui.components.GlassAlertDialog
 import com.ikunshare.music.ui.components.GlassIconButton
 import com.ikunshare.music.ui.components.GlassTopBar
 import com.ikunshare.music.ui.components.LiquidGlassScene
@@ -66,9 +67,6 @@ import com.ikunshare.music.ui.utils.LocalScrollOffsetReporter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-/** 设置页自定义对话框（Dialog + Surface）的统一圆角，与 Material3 AlertDialog 默认值一致 */
-internal val DialogCornerRadius = 28.dp
 
 private val standardQualityOptions = listOf(
     "" to "自动（最高标准音质）",
@@ -115,7 +113,6 @@ private enum class SettingsSection(@StringRes val titleRes: Int) {
     CACHE(R.string.section_cache),
     BACKUP(R.string.section_backup),
     SYNC(R.string.section_sync),
-    NETWORK(R.string.section_network),
     ABOUT(R.string.section_about)
 }
 
@@ -294,7 +291,6 @@ private fun sectionIcon(section: SettingsSection): ImageVector = when (section) 
     SettingsSection.CACHE -> Icons.Filled.Storage
     SettingsSection.BACKUP -> Icons.Filled.SettingsBackupRestore
     SettingsSection.SYNC -> Icons.Filled.Sync
-    SettingsSection.NETWORK -> Icons.Filled.Sync
     SettingsSection.ABOUT -> Icons.Filled.Info
 }
 
@@ -303,7 +299,7 @@ private fun sectionGroup(section: SettingsSection): Int = when (section) {
     SettingsSection.ACCOUNT, SettingsSection.APPEARANCE, SettingsSection.FONT -> R.string.settings_group_personal
     SettingsSection.PLAYBACK, SettingsSection.FLOATING_LYRICS, SettingsSection.LYRICON -> R.string.settings_group_listening
     SettingsSection.LIST, SettingsSection.DOWNLOAD, SettingsSection.CACHE, SettingsSection.BACKUP, SettingsSection.SYNC -> R.string.settings_group_library
-    SettingsSection.NETWORK, SettingsSection.ABOUT -> R.string.settings_group_app
+    SettingsSection.ABOUT -> R.string.settings_group_app
 }
 
 @StringRes
@@ -319,7 +315,6 @@ private fun sectionSummary(section: SettingsSection): Int = when (section) {
     SettingsSection.CACHE -> R.string.settings_summary_cache
     SettingsSection.BACKUP -> R.string.settings_summary_backup
     SettingsSection.SYNC -> R.string.settings_summary_sync
-    SettingsSection.NETWORK -> R.string.settings_summary_network
     SettingsSection.ABOUT -> R.string.settings_summary_about
 }
 
@@ -477,7 +472,6 @@ private fun SettingsSectionContent(
             SettingsSection.CACHE -> CacheSection(settings, vm)
             SettingsSection.BACKUP -> BackupSection(vm)
             SettingsSection.SYNC -> SyncSection()
-            SettingsSection.NETWORK -> NetworkSettingsSection(settings, vm)
             SettingsSection.ABOUT -> AboutSection()
         }
     }
@@ -769,7 +763,7 @@ private fun DownloadSection(
     // 下载路径输入对话框
     if (showPathDialog) {
         var pathInput by remember { mutableStateOf(settings.downloadPath) }
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { showPathDialog = false },
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             title = {
@@ -931,7 +925,7 @@ private fun CacheSection(
     }
 
     if (showClearAllDialog) {
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { showClearAllDialog = false },
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             title = {
@@ -992,7 +986,7 @@ private fun CacheSection(
         }
     )
     if (showClearWebViewDialog) {
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { showClearWebViewDialog = false },
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             title = {
@@ -1042,7 +1036,7 @@ internal fun DebugSettingsDialog(onDismiss: () -> Unit) {
     val settings by app.appSettingsManager.settings.collectAsState()
     val context = LocalContext.current
 
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text("调试设置", style = MaterialTheme.typography.titleLarge)

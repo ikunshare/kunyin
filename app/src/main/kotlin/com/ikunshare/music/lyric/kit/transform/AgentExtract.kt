@@ -124,7 +124,7 @@ class AgentExtract : ParserPlugin() {
                 // fall through to tail
             }
 
-            content.agent = Runtime.makeLineAgent(currentId!!)
+            content.agent = Runtime.makeLineAgent(currentId)
             newLines.add(line)
         }
 

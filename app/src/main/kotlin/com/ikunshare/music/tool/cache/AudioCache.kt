@@ -158,7 +158,7 @@ class AudioCache(
         dir.listFiles()?.forEach { it.delete() }
 
         val request = Request.Builder().url(url).build()
-        val call = com.ikunshare.music.utils.NetworkProxy.call(httpClient, request)
+        val call = httpClient.newCall(request)
         onCallCreated?.invoke(call)
 
         try {

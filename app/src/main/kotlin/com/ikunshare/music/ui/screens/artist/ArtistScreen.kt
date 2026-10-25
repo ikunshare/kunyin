@@ -304,7 +304,6 @@ fun ArtistScreen(
                         }
                     }
                 } else if (selectionMode && selectedSongs.isNotEmpty()) {
-                    val appSettings by viewModelFactory.appSettingsManager.settings.collectAsState()
                     SelectionBottomBar(
                         selectedCount = selectedSongs.size,
                         onPlayNext = {
@@ -320,9 +319,7 @@ fun ArtistScreen(
                             exitSelectionMode()
                         },
                         onDownload = { showQualityPicker = true },
-                        onAddToPlaylist = { showPlaylistPicker = true },
-                        floatingBottomBar = appSettings.floatingBottomBar,
-                        liquidGlass = appSettings.liquidGlassMode
+                        onAddToPlaylist = { showPlaylistPicker = true }
                     )
                 }
             },

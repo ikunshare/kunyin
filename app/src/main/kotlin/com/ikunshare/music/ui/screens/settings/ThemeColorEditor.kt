@@ -15,13 +15,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,7 +32,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
+import com.ikunshare.music.ui.components.GlassDialog
+import com.ikunshare.music.ui.components.glassDialogSurface
 import com.ikunshare.music.R
 import com.ikunshare.music.ui.components.ColorPickerDialog
 import com.ikunshare.music.ui.components.toArgbLong
@@ -53,14 +52,12 @@ fun ThemeColorEditor(
     var colorPickerTarget by remember { mutableStateOf<String?>(null) }
     var colorPickerInitial by remember { mutableStateOf(Color.White) }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 6.dp,
+    GlassDialog(onDismissRequest = onDismiss) {
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 16.dp)
+                .glassDialogSurface(28.dp)
         ) {
             Column(modifier = Modifier.padding(24.dp)) {
                 Text(

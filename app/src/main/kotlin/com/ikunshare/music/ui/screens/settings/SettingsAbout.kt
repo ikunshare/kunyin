@@ -26,7 +26,7 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.VerifiedUser
-import androidx.compose.material3.AlertDialog
+import com.ikunshare.music.ui.components.GlassAlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -149,7 +149,7 @@ internal fun AboutSection() {
     )
 
     if (showAuthDialog && authManager != null) {
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = {
                 showAuthDialog = false
                 authInput = ""

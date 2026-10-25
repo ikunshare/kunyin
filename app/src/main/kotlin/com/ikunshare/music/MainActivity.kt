@@ -84,9 +84,11 @@ import com.ikunshare.music.manager.UpdateInfo
 import com.ikunshare.music.service.PlaybackService
 import com.ikunshare.music.ui.KunyinViewModelFactory
 import com.ikunshare.music.ui.components.ActivationDialog
-import com.ikunshare.music.ui.components.BottomBarWithMiniPlayer
 import com.ikunshare.music.ui.components.EulaDialog
+import com.ikunshare.music.ui.components.GlassDialogHostBox
 import com.ikunshare.music.ui.components.LiquidGlassBottomBar
+import com.ikunshare.music.ui.components.LocalGlassDialogHost
+import com.ikunshare.music.ui.components.rememberGlassDialogHost
 import com.ikunshare.music.ui.components.LiquidGlassSideNavBar
 import com.ikunshare.music.ui.components.NoticeDialog
 import com.ikunshare.music.ui.components.UpdateDialog
@@ -772,7 +774,9 @@ fun KunSoundApp(
         drawContent()
     }
 
-    CompositionLocalProvider(LocalPlayerSheet provides playerSheet) {
+    val glassDialogHost = rememberGlassDialogHost()
+    CompositionLocalProvider(LocalPlayerSheet provides playerSheet, LocalGlassDialogHost provides glassDialogHost) {
+    GlassDialogHostBox(glassDialogHost) {
     PlayerSheetHost(
         state = playerSheet,
         sheet = { request ->
@@ -823,66 +827,47 @@ fun KunSoundApp(
         CompositionLocalProvider(
             com.ikunshare.music.ui.components.LocalSongListOperationsVisible provides appSettings.showListOperationButtons,
             LocalScrollOffsetReporter provides reportScrollOffset,
-            LocalFloatingBottomBarReserve provides if (appSettings.floatingBottomBar) {
-                when {
-                    showBottomNav && showMiniPlayer && !isCompactMode -> 152.dp
-                    showBottomNav && !isCompactMode -> 88.dp
-                    showMiniPlayer -> 88.dp
-                    else -> 0.dp
-                }
-            } else 0.dp
+            LocalFloatingBottomBarReserve provides when {
+                showBottomNav && showMiniPlayer && !isCompactMode -> 152.dp
+                showBottomNav && !isCompactMode -> 88.dp
+                showMiniPlayer -> 88.dp
+                else -> 0.dp
+            }
         ) {
             val bottomBar: @Composable () -> Unit = {
                 if (showBottomNav || showMiniPlayer) {
-                    if (appSettings.floatingBottomBar) {
-                        LiquidGlassBottomBar(
-                            navController = navController,
-                            isOnTabs = showBottomNav,
-                            showMiniPlayer = showMiniPlayer,
-                            playerViewModel = playerViewModel,
-                            selectedTabIndex = pagerState.currentPage,
-                            onTabClick = onTabClick,
-                            isCustomTheme = isCustomTheme,
-                            bottomBarOpacity = appSettings.bottomBarOpacity,
-                            onExitCompactMode = { isCompactMode = false },
-                            isCompactMode = isCompactMode,
-                            backdrop = backdrop,
-                            isWideScreen = isWideScreen,
-                            enableBlur = appSettings.liquidGlassMode
-                        )
-                    } else {
-                        BottomBarWithMiniPlayer(
-                            navController = navController,
-                            isOnTabs = showBottomNav,
-                            showMiniPlayer = showMiniPlayer,
-                            playerViewModel = playerViewModel,
-                            selectedTabIndex = pagerState.currentPage,
-                            onTabClick = onTabClick,
-                            isCustomTheme = isCustomTheme,
-                            bottomBarOpacity = appSettings.bottomBarOpacity
-                        )
-                    }
+                    LiquidGlassBottomBar(
+                        navController = navController,
+                        isOnTabs = showBottomNav,
+                        showMiniPlayer = showMiniPlayer,
+                        playerViewModel = playerViewModel,
+                        selectedTabIndex = pagerState.currentPage,
+                        onTabClick = onTabClick,
+                        isCustomTheme = isCustomTheme,
+                        bottomBarOpacity = appSettings.bottomBarOpacity,
+                        onExitCompactMode = { isCompactMode = false },
+                        isCompactMode = isCompactMode,
+                        backdrop = backdrop,
+                        isWideScreen = isWideScreen
+                    )
                 }
             }
 
-            if (isWideScreen && appSettings.floatingBottomBar) {
-                // 宽屏 + LiquidGlass：左侧竖向导航 + 右侧内容（底部仍有 MiniPlayer）
+            if (isWideScreen) {
+                // 宽屏：左侧竖向导航 + 右侧内容（底部仍有 MiniPlayer）
                 Scaffold(
                     containerColor = if (hasBgImage) Color.Transparent else MaterialTheme.colorScheme.background,
                     bottomBar = bottomBar
                 ) { _ ->
                     Row(Modifier.fillMaxSize()) {
-                        // 左侧竖向导航栏
                         if (isOnTabs) {
                             LiquidGlassSideNavBar(
                                 selectedIndex = pagerState.currentPage,
                                 onTabClick = onTabClick,
                                 backdrop = backdrop,
-                                modifier = Modifier.fillMaxHeight(),
-                                enableBlur = appSettings.liquidGlassMode
+                                modifier = Modifier.fillMaxHeight()
                             )
                         }
-                        // 右侧主内容
                         SoundNavHost(
                             navController = navController,
                             playerViewModel = playerViewModel,
@@ -897,11 +882,11 @@ fun KunSoundApp(
                     }
                 }
             } else {
-                // 窄屏或非 LiquidGlass：保持原有上下结构
+                // 窄屏：内容铺满，悬浮底栏盖在内容之上，由 LocalFloatingBottomBarReserve 负责避让
                 Scaffold(
                     containerColor = if (hasBgImage) Color.Transparent else MaterialTheme.colorScheme.background,
                     bottomBar = bottomBar
-                ) { padding ->
+                ) { _ ->
                     SoundNavHost(
                         navController = navController,
                         playerViewModel = playerViewModel,
@@ -911,11 +896,6 @@ fun KunSoundApp(
                         modifier = Modifier
                             .fillMaxSize()
                             .layerBackdrop(backdrop)
-                            .then(
-                                if (!appSettings.floatingBottomBar) {
-                                    Modifier.padding(bottom = padding.calculateBottomPadding())
-                                } else Modifier
-                            )
                     )
                 }
             }
@@ -923,5 +903,6 @@ fun KunSoundApp(
     }
         }
     )
+    }
     }
 }

@@ -22,7 +22,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material3.AlertDialog
+import com.ikunshare.music.ui.components.GlassAlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -253,9 +253,7 @@ fun SearchScreen(
                         },
                         onAddToPlaylist = {
                             showPlaylistPicker = true
-                        },
-                        floatingBottomBar = appSettings.floatingBottomBar,
-                        liquidGlass = appSettings.liquidGlassMode
+                        }
                     )
                 }
             },
@@ -361,7 +359,7 @@ fun SearchScreen(
 
                                 // 长按菜单
                                 if (albumMenuTarget != null) {
-                                    AlertDialog(
+                                    GlassAlertDialog(
                                         onDismissRequest = { albumMenuTarget = null },
                                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                                         title = {

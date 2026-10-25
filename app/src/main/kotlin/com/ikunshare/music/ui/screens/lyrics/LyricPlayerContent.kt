@@ -1,40 +1,45 @@
 package com.ikunshare.music.ui.screens.lyrics
 
-import androidx.compose.foundation.interaction.collectIsDraggedAsState
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 import com.ikunshare.music.MusicApplication
 import com.ikunshare.music.model.LyricCredit
 import com.ikunshare.music.model.LyricLine
 import com.ikunshare.music.model.ParsedLyric
 import com.ikunshare.music.tool.lyricplayer.BaseLyricPlayer
-import kotlinx.coroutines.delay
+import com.ikunshare.music.tool.lyricplayer.LyricPlayerMatch
+import com.ikunshare.music.ui.screens.lyrics.player.LyricFrameClock
+import com.ikunshare.music.ui.screens.lyrics.player.LyricPlayerConfig
+import com.ikunshare.music.ui.screens.lyrics.player.LyricTextStyles
+import com.ikunshare.music.ui.screens.lyrics.player.LyricViewport
 
-internal val LocalLyricPlaybackRate = staticCompositionLocalOf { 1f }
-
-/** Native viewport for the desktop lyric model; only visible lines are composed. */
+/**
+ * 歌词面板入口：桌面端 `music-lyric-player` 的 Compose 还原。
+ *
+ * - [BaseLyricPlayer] 负责激活行判定（合并窗口、桥接）
+ * - 一个帧循环产出插帧后的播放位置与墙钟，行组件只在 draw 阶段读取
+ * - 激活行集合只在变化时写入 state，逐帧不重组
+ */
 @Composable
 internal fun WebLyricsContent(
     lyrics: List<LyricLine>, currentPosition: Long, isPlaying: Boolean,
@@ -47,108 +52,73 @@ internal fun WebLyricsContent(
     val settings = MusicApplication.instance?.appSettingsManager?.settings?.collectAsState()?.value
     val mainSize = (settings?.lyricsMainFontSize ?: 24).coerceIn(14, 48)
     val subSize = (settings?.lyricsTransFontSize ?: 16).coerceIn(10, 32)
-    val mainStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = mainSize.sp,
-        lineHeight = (mainSize * 1.3f).sp, fontWeight = lyricFontWeightFromKey(settings?.lyricsFontWeight ?: "bold"))
-    val subStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = subSize.sp,
-        lineHeight = (subSize * 1.32f).sp)
+    val weight = lyricFontWeightFromKey(settings?.lyricsFontWeight ?: "bold")
+    val base = MaterialTheme.typography.bodyLarge
+    val styles = remember(mainSize, subSize, weight, base) {
+        LyricTextStyles(
+            main = base.copy(fontSize = mainSize.sp, lineHeight = (mainSize * 1.3f).sp, fontWeight = weight, color = Color.White),
+            annotation = base.copy(fontSize = subSize.sp, lineHeight = (subSize * 1.35f).sp, color = Color.White),
+        )
+    }
+    val config = LyricPlayerConfig.Default
+
     val parsed = remember(lyrics, isSynced, hasCharLyrics) { ParsedLyric(lyrics, false, false, hasCharLyrics, isSynced) }
     val player = remember(parsed) { BaseLyricPlayer().apply { updateLyric(parsed) } }
-    val match = remember(player, currentPosition) { player.matchLinesWithTime(currentPosition) }
-    val focus = remember(lyrics, match, currentPosition) {
-        if (match.firstActiveIndex >= 0) match.firstActiveIndex
-        else parsed.findCurrentLineIndex(currentPosition).coerceAtLeast(0)
+
+    // 帧时钟：只在可见 + 播放中驱动；暂停 / 不可见时对齐到 ViewModel 推送的位置
+    val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    val visible = lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
+    val drive = visible && isPlaying && isSynced
+    val positionState = remember(lyrics) { mutableLongStateOf(currentPosition) }
+    val wallState = remember { mutableLongStateOf(System.nanoTime() / 1_000_000L) }
+    val clock = remember(lyrics) { LyricPlaybackClock(currentPosition, System.nanoTime()) }
+    val matchState = remember(player) { mutableStateOf(player.matchLinesWithTime(currentPosition)) }
+    // 激活集合只在行边界变化：记下下一个边界，边界之前跳过匹配（逐帧调用不再分配列表）
+    val matchWindow = remember(player) { LongArray(2) { Long.MIN_VALUE } } // [上次位置, 下一边界]
+    fun publish(position: Long) {
+        positionState.longValue = position
+        if (position < matchWindow[0] || position >= matchWindow[1]) {
+            val next = player.matchLinesWithTime(position)
+            if (next.indexes != matchState.value.indexes) matchState.value = next
+            matchWindow[1] = player.nextChangeTime(position)
+        }
+        matchWindow[0] = position
     }
-    // Exclude hidden interludes entirely, including their LazyColumn spacing.
-    // Keep the original index for matching, stable keys and neighbouring times.
-    val activeInterlude = match.indexes.firstOrNull { lyrics[it].isInterlude }
-    val presented = remember(lyrics, activeInterlude) {
-        lyrics.withIndex().filter { !it.value.isInterlude || it.index == activeInterlude }
+    LaunchedEffect(currentPosition, drive, playbackRate, clock) {
+        publish(clock.accept(currentPosition, System.nanoTime(), running = drive))
     }
-    val presentedFocus = presented.indexOfFirst { it.index == focus }.let { index ->
-        if (index >= 0) index else presented.indexOfLast { it.index < focus }.coerceAtLeast(0)
-    }
-    val state = rememberLazyListState()
-    val dragging by state.interactionSource.collectIsDraggedAsState()
-    val density = LocalDensity.current
-    var viewportHeight by remember { mutableIntStateOf(0) }
-    var viewportWidth by remember { mutableIntStateOf(0) }
-    var manual by remember(lyrics) { mutableStateOf(false) }
-    var touchGeneration by remember(lyrics) { mutableIntStateOf(0) }
-    val measuredHeights = remember(lyrics, mainSize, subSize, showTranslation, showRomanization, showPhonetic) { mutableStateMapOf<Int, Int>() }
-    val input = remember(lyrics) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput) {
-                    manual = true
-                    touchGeneration++
-                }
-                return Offset.Zero
+    LaunchedEffect(drive, playbackRate, clock) {
+        // 墙钟在不播放时也以低频推进，供退场动画（float 回落 / 重音收尾）在暂停瞬间收完
+        while (true) {
+            withFrameNanos { nanos ->
+                wallState.longValue = nanos / 1_000_000L
+                if (drive) publish(clock.frame(nanos, playbackRate))
             }
+            if (!drive) kotlinx.coroutines.delay(48)
         }
     }
-    LaunchedEffect(manual, touchGeneration, dragging, state.isScrollInProgress, isPlaying) {
-        if (manual && isPlaying && !dragging && !state.isScrollInProgress) {
-            delay(5000)
-            manual = false
-        }
-    }
-    val focusHeight = measuredHeights[focus] ?: with(density) { (mainSize * 1.3f).sp.toPx().toInt() }
-    var initialized by remember(lyrics) { mutableStateOf(false) }
-    LaunchedEffect(lyrics, presentedFocus, focus, focusHeight, viewportHeight, manual) {
-        if (manual || !isSynced || presented.isEmpty() || viewportHeight <= 0) return@LaunchedEffect
-        if (!initialized) {
-            state.scrollToItem(presentedFocus, focusHeight / 2)
-            initialized = true
-        } else state.animateScrollToItem(presentedFocus, focusHeight / 2)
-    }
-    CompositionLocalProvider(LocalLyricPlaybackRate provides playbackRate) {
-        LazyColumn(
-            state = state,
-            modifier = modifier.fillMaxSize().clipToBounds()
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                .drawWithCache {
-                    val visibleFraction = if (size.height > 0f)
-                        ((size.height - occludedBottomPx) / size.height).coerceIn(0f, 1f) else 1f
-                    val edgeFraction = if (size.height > 0f)
-                        (28.dp.toPx() / size.height).coerceAtMost(visibleFraction / 2f) else 0f
-                    val fade = Brush.verticalGradient(0f to Color.Transparent, edgeFraction to Color.Black,
-                        (visibleFraction - edgeFraction) to Color.Black,
-                        visibleFraction to Color.Transparent, 1f to Color.Transparent)
-                    onDrawWithContent {
-                        drawContent()
-                        drawRect(fade, blendMode = BlendMode.DstIn)
-                    }
-                }.nestedScroll(input).onSizeChanged {
-                viewportHeight = it.height
-                viewportWidth = it.width
-            },
-            contentPadding = PaddingValues(start = horizontalPadding, end = horizontalPadding,
-                    top = with(density) { (viewportHeight * anchorFraction).toDp() },
-                    bottom = with(density) { (viewportHeight * (1f - anchorFraction)).toDp() }),
-            verticalArrangement = Arrangement.spacedBy(28.dp)
-        ) {
-            itemsIndexed(presented, key = { _, item -> "${item.value.timestamp}:${item.index}" },
-                contentType = { _, item -> if (item.value.isInterlude) "interlude" else "lyric" }) { _, item ->
-                val index = item.index
-                val line = item.value
-                WebLyricLine(
-                    line = line,
-                    active = index in match.indexes,
-                    played = isSynced && currentPosition >= line.getEndTime(lyrics.getOrNull(index + 1)?.timestamp),
-                    currentPosition = currentPosition, isPlaying = isPlaying,
-                    showTranslation = showTranslation, showRomanization = showRomanization,
-                    showPhonetic = showPhonetic, hasCharLyrics = hasCharLyrics,
-                    mainStyle = mainStyle, subStyle = subStyle,
-                    availableWidthPx = (viewportWidth - with(density) { horizontalPadding.toPx() * 2 }).toInt().coerceAtLeast(0),
-                    onClick = { if (isSynced) { manual = false; onLineClick(line.timestamp) } },
-                    modifier = Modifier.fillMaxWidth().onSizeChanged { measuredHeights[index] = it.height }
-                )
-            }
-            if (credits.isNotEmpty()) item(key = "credits", contentType = "credits") {
-                LyricCredits(credits)
-            }
-        }
-    }
+    val frameClock = remember(positionState, wallState) { LyricFrameClock(positionState, wallState) }
+    val match: LyricPlayerMatch = matchState.value
+
+    LyricViewport(
+        lines = lyrics,
+        isSynced = isSynced,
+        match = match,
+        clock = frameClock,
+        isPlaying = isPlaying,
+        styles = styles,
+        config = config,
+        showTranslation = showTranslation,
+        showRomanization = showRomanization,
+        showPhonetic = showPhonetic,
+        hasCharLyrics = hasCharLyrics,
+        credits = credits,
+        onLineClick = onLineClick,
+        anchorFraction = anchorFraction,
+        horizontalPadding = horizontalPadding,
+        occludedBottomPx = occludedBottomPx,
+        modifier = modifier,
+    )
 }
 
 @Composable

@@ -169,7 +169,7 @@ class SyncClient(
 
     private fun probeHello(base: String) {
         val req = Request.Builder().url("$base/hello").get().build()
-        com.ikunshare.music.utils.NetworkProxy.call(http, req).execute().use { r ->
+        http.newCall(req).execute().use { r ->
             if (!r.isSuccessful) throw IllegalStateException("hello 失败: HTTP ${r.code}")
             val body = r.body.string().trim()
             if (body != SyncProtocol.HELLO_MSG) {
@@ -220,7 +220,7 @@ class SyncClient(
                 if (!clientId.isNullOrBlank()) addHeader("i", clientId)
             }
             .build()
-        val r: Response = com.ikunshare.music.utils.NetworkProxy.call(http, req).execute()
+        val r: Response = http.newCall(req).execute()
         r.use {
             if (!it.isSuccessful) return null
             return it.body.string()
@@ -256,7 +256,7 @@ class SyncClient(
 
         val req = Request.Builder().url(url).build()
         _status.value = SyncState.Syncing
-        webSocket = com.ikunshare.music.utils.NetworkProxy.webSocket(http, req, listener)
+        webSocket = http.newWebSocket(req, listener)
     }
 
     private fun sendFrame(text: String): Boolean {

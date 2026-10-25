@@ -38,6 +38,7 @@ import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.ikunshare.music.ui.KunyinViewModelFactory
 import com.ikunshare.music.ui.components.EmptyState
+import com.ikunshare.music.ui.components.GlassAlertDialog
 import com.ikunshare.music.ui.components.GlassTopBar
 import com.ikunshare.music.ui.components.LiquidGlassScene
 import com.ikunshare.music.ui.components.liquidGlass
@@ -184,7 +185,7 @@ fun DownloadScreen(navController: NavController, viewModelFactory: KunyinViewMod
         }
     }
     if (showClearDialog) {
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { showClearDialog = false },
             title = { Text(stringResource(R.string.clear_completed_title)) },
             text = { Text(stringResource(R.string.clear_completed_confirm)) },
@@ -361,7 +362,7 @@ private fun TaskActionDialog(
     onCancel: () -> Unit,
     onRemove: (deleteFile: Boolean) -> Unit
 ) {
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         title = {

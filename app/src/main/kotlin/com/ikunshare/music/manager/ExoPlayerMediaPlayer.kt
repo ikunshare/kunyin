@@ -60,7 +60,7 @@ class ExoPlayerMediaPlayer(
     )
     private val cache = SimpleCache(cacheDir, cacheEvictor, StandaloneDatabaseProvider(context))
 
-    private val upstreamFactory: DataSource.Factory = OkHttpDataSource.Factory(com.ikunshare.music.utils.NetworkProxy.factory(okHttpClient))
+    private val upstreamFactory: DataSource.Factory = OkHttpDataSource.Factory(okHttpClient)
 
     private val cacheDataSourceFactory = CacheDataSource.Factory()
         .setCache(cache)

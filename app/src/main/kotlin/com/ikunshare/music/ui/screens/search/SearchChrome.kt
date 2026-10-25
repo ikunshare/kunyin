@@ -27,8 +27,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -53,10 +52,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -163,12 +170,14 @@ internal fun SearchTopBar(
         // Give landscape typing room; filters return when the keyboard closes.
         if (!compact) {
             if (availableProviders.isNotEmpty()) {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                val providerScroll = rememberScrollState()
+                Row(Modifier.fillMaxWidth().horizontalScroll(providerScroll),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     availableProviders.forEach { source ->
                         SearchChoiceChip(
                             label = MusicApplication.instance?.musicRepository?.getProvider(source)?.displayName ?: source,
                             selected = source == currentProvider,
+                            rowScroll = providerScroll,
                             onClick = {
                                 focusManager.clearFocus()
                                 keyboard?.hide()
@@ -179,10 +188,11 @@ internal fun SearchTopBar(
                 }
             }
             if (supportedSearchTypes.size > 1) {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                val typeScroll = rememberScrollState()
+                Row(Modifier.fillMaxWidth().horizontalScroll(typeScroll),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     supportedSearchTypes.forEach { type ->
-                        SearchChoiceChip(type.displayName, type == searchType) {
+                        SearchChoiceChip(type.displayName, type == searchType, typeScroll) {
                             focusManager.clearFocus()
                             keyboard?.hide()
                             onSearchTypeSwitch(type)
@@ -190,21 +200,41 @@ internal fun SearchTopBar(
                     }
                 }
             }
+
         }
     }
 }
 
+/**
+ * Reveals the selected chip by scrolling only its own row. A `bringIntoView()` request would
+ * also propagate to the tab pager and, when the search page is composed off-screen (e.g. the
+ * pager is rebuilt after returning from a playlist), drag the pager back to this page.
+ */
 @Composable
-private fun SearchChoiceChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    val bringIntoView = remember { BringIntoViewRequester() }
-    LaunchedEffect(selected) {
-        if (selected) bringIntoView.bringIntoView()
+private fun SearchChoiceChip(label: String, selected: Boolean, rowScroll: ScrollState, onClick: () -> Unit) {
+    var bounds by remember { mutableStateOf(IntRect.Zero) }
+    LaunchedEffect(selected, rowScroll) {
+        if (!selected) return@LaunchedEffect
+        val rect = snapshotFlow { bounds }.first { it.width > 0 }
+        val padding = 16
+        val visibleStart = rowScroll.value
+        val visibleEnd = visibleStart + rowScroll.viewportSize
+        when {
+            rect.left < visibleStart -> rowScroll.animateScrollTo((rect.left - padding).coerceAtLeast(0))
+            rect.right > visibleEnd -> rowScroll.animateScrollTo(rect.right - rowScroll.viewportSize + padding)
+        }
     }
     GlassButton(onClick, accented = selected, height = 44.dp,
-        modifier = Modifier.bringIntoViewRequester(bringIntoView).semantics { this.selected = selected }) {
+        modifier = Modifier
+            .onPlaced { coordinates ->
+                val position = coordinates.positionInParent()
+                bounds = IntRect(IntOffset(position.x.toInt(), position.y.toInt()), coordinates.size)
+            }
+            .semantics { this.selected = selected }) {
         Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
     }
 }
+
 
 @Composable
 internal fun SearchSuggestionsList(
