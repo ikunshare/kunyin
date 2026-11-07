@@ -97,6 +97,7 @@ fun LiquidBottomTabs(
         // 用 rememberUpdatedState 保持 lambda 内引用始终最新
         val currentTabWidth by rememberUpdatedState(tabWidth)
         val currentIsLtr by rememberUpdatedState(isLtr)
+        val currentOnTabSelected by rememberUpdatedState(onTabSelected)
 
         // 使用外部 selectedTabIndex 作为真实来源
         val currentIndex = selectedTabIndex()
@@ -111,7 +112,7 @@ fun LiquidBottomTabs(
                 onDragStarted = {},
                 onDragStopped = {
                     val targetIndex = targetValue.fastRoundToInt().fastCoerceIn(0, tabsCount - 1)
-                    onTabSelected(targetIndex)
+                    currentOnTabSelected(targetIndex)
                     // 吸附到最近 tab，避免松手停在两项之间
                     animateToValue(targetIndex.toFloat())
                     animationScope.launch {

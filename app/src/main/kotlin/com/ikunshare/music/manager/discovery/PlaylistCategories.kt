@@ -78,7 +78,9 @@ private suspend fun requestCategories(request: CategoryRequest): JsonObject {
     return response.json(JsonObject::class.java) ?: throw IOException("Empty category response")
 }
 
-internal fun discoveryClean(value: String) = value.replace(Regex("<[^>]*>"), "")
+private val discoveryTagRegex = Regex("<[^>]*>")
+
+internal fun discoveryClean(value: String) = value.replace(discoveryTagRegex, "")
     .replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&nbsp;", " ").trim()
 private fun objects(value: JsonElement?): List<JsonObject> = value?.takeIf { it.isJsonArray }?.asJsonArray
     ?.mapNotNull { it.takeIf { item -> item.isJsonObject }?.asJsonObject }.orEmpty()

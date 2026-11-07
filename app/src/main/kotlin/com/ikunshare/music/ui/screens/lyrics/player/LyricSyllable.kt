@@ -1,7 +1,7 @@
 package com.ikunshare.music.ui.screens.lyrics.player
 
+import android.icu.text.BreakIterator
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.layer.CompositingStrategy
 import androidx.compose.ui.graphics.GraphicsContext
@@ -30,7 +30,7 @@ import kotlin.math.round
  * 逐字行的布局与绘制，对应桌面端 `components/line/normal/syllable` 目录：
  * - 布局只做一次（词 / 字 / 逐字音译各测一次），结果缓存在 [SyllableLayout]
  * - 每帧只在 draw 阶段按时间采样：mask 擦除、float 上浮、长音逐字上浮
- * - 擦除用文字笔刷（横向渐变）直接画，而非 DstIn 遮罩
+ * - 擦除用双层互补 clip 直接画，而非 DstIn 遮罩
  * - 运动中的词 / 字各自录进小离屏图层，靠图层位移做亚像素平滑上浮（见 [SyllableLayerCache]）
  */
 
@@ -114,15 +114,16 @@ internal class LineAnimState {
     }
 }
 
-private fun splitGraphemes(text: String): List<String> {
+private fun splitGraphemes(text: String, iterator: BreakIterator): List<String> {
     if (text.isEmpty()) return emptyList()
+    iterator.setText(text)
     val out = ArrayList<String>(text.length)
-    var i = 0
-    while (i < text.length) {
-        val cp = text.codePointAt(i)
-        val n = Character.charCount(cp)
-        out.add(text.substring(i, i + n))
-        i += n
+    var start = iterator.first()
+    var end = iterator.next()
+    while (end != BreakIterator.DONE) {
+        out.add(text.substring(start, end))
+        start = end
+        end = iterator.next()
     }
     return out
 }
@@ -136,6 +137,7 @@ private fun TextMeasurer.measureSingle(text: String, style: TextStyle): TextLayo
  * @param maxWidth 可用宽度 px
  * @param romanStyle 逐字音译样式；null 表示不显示逐字音译
  * @param emphasizeEnabled 是否允许重音强调（音译行 / 背景行关闭）
+ * @param measureOnly 仅计算换行时跳过绘制单元与遮罩关键帧
  */
 internal fun buildSyllableLayout(
     chars: List<LyricChar>,
@@ -150,6 +152,7 @@ internal fun buildSyllableLayout(
     config: LyricPlayerConfig,
     emphasizeEnabled: Boolean,
     isBackground: Boolean,
+    measureOnly: Boolean = false,
 ): SyllableLayout {
     val fontPx = with(density) { style.fontSize.toPx() }
     val lineDuration = (lineEnd - lineStart).coerceAtLeast(1L).toFloat()
@@ -177,6 +180,7 @@ internal fun buildSyllableLayout(
     )
 
     val pendings = ArrayList<Pending>(chars.size)
+    var graphemeIterator: BreakIterator? = null
     for (word in chars) {
         val text = word.char
         val stressed = useEmphasize && word.stress && text.isNotBlank()
@@ -185,9 +189,10 @@ internal fun buildSyllableLayout(
         var wordWidth: Float
         var wordHeight: Float
         if (stressed) {
+            val iterator = graphemeIterator ?: BreakIterator.getCharacterInstance().also { graphemeIterator = it }
             var x = 0f
             var h = 0f
-            val list = splitGraphemes(text).map { g ->
+            val list = splitGraphemes(text, iterator).map { g ->
                 val r = measurer.measureSingle(g, style)
                 val w = r.size.width.toFloat()
                 h = max(h, r.size.height.toFloat())
@@ -317,11 +322,11 @@ internal fun buildSyllableLayout(
         y += rowHeight
     }
 
-    val result = SyllableLayout(words, buildDrawUnits(words), layoutWidth, y, rows.size, lineStart, lineDuration,
-        fontPx, isBackground)
+    val result = SyllableLayout(words, if (measureOnly) emptyList() else buildDrawUnits(words), layoutWidth, y,
+        rows.size, lineStart, lineDuration, fontPx, isBackground)
 
     // 擦除关键帧：词级（宽度取擦除容器宽、高度取词高）
-    if (config.mask.enabled && words.isNotEmpty()) {
+    if (!measureOnly && config.mask.enabled && words.isNotEmpty()) {
         val segments = words.map { w ->
             val start = (w.info.startTime - lineStart).toFloat().coerceIn(0f, lineDuration)
             val end = (w.info.endTime - lineStart).toFloat().coerceIn(start, lineDuration)
@@ -596,9 +601,9 @@ internal class SyllablePainter(private val config: LyricPlayerConfig) {
     }
 
     /**
-     * 擦除 = 双层互补 clip 硬切：已唱区 [0, activeX) 与未唱区 [activeX, width) 各画一遍完整文字，
-     * 互不重叠、无渐变、无状态分支。边界是单一浮点值 activeX，离屏图层合成时双线性采样，
-     * 亚像素移动不闪。[fadeX] 保留用于软边签名兼容，当前不参与绘制。
+     * 擦除 = 双层互补 clip 硬切：已唱区与未唱区各画一遍完整文字，互不重叠、无渐变、无状态分支。
+     * 原渐变覆盖 [activeX, fadeX]，硬切边界取二者中点，避免直接用渐变起点导致高亮滞后。
+     * 离屏图层合成时使用双线性采样，亚像素移动不闪。
      */
     private fun drawMasked(
         scope: DrawScope, layout: TextLayoutResult, left: Float, top: Float, activeX: Float, fadeX: Float,
@@ -606,7 +611,7 @@ internal class SyllablePainter(private val config: LyricPlayerConfig) {
     ) {
         val topLeft = Offset(left, top)
         val height = layout.size.height.toFloat()
-        val cut = activeX.coerceIn(0f, width)
+        val cut = ((activeX + fadeX) * 0.5f).coerceIn(0f, width)
         if (cut > 0f) {
             scope.clipRect(left = left, top = top - 1f, right = left + cut, bottom = top + height + 1f) {
                 scope.drawText(layout, color = color.copy(alpha = alphaActive), topLeft = topLeft)

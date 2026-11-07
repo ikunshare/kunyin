@@ -23,16 +23,24 @@ private class MediaDataSourceBridge(
 
     private var position: Long = 0L
     private var bytesRemaining: Long = C.LENGTH_UNSET.toLong()
+    private var transferOpen = false
 
     override fun open(dataSpec: DataSpec): Long {
         transferInitializing(dataSpec)
         position = dataSpec.position
         val totalSize = source.size
-        bytesRemaining = if (totalSize == -1L) {
+        val available = if (totalSize == C.LENGTH_UNSET.toLong()) {
             C.LENGTH_UNSET.toLong()
         } else {
-            totalSize - position
+            (totalSize - position).coerceAtLeast(0L)
         }
+        val requested = dataSpec.length
+        bytesRemaining = when {
+            requested == C.LENGTH_UNSET.toLong() -> available
+            available == C.LENGTH_UNSET.toLong() -> requested
+            else -> minOf(available, requested)
+        }
+        transferOpen = true
         transferStarted(dataSpec)
         return bytesRemaining
     }
@@ -48,7 +56,10 @@ private class MediaDataSourceBridge(
         }
 
         val read = source.readAt(position, buffer, offset, toRead)
-        if (read == -1) return C.RESULT_END_OF_INPUT
+        if (read == -1) {
+            bytesRemaining = 0L
+            return C.RESULT_END_OF_INPUT
+        }
 
         position += read
         if (bytesRemaining != C.LENGTH_UNSET.toLong()) {
@@ -61,6 +72,10 @@ private class MediaDataSourceBridge(
     override fun getUri(): Uri = Uri.EMPTY
 
     override fun close() {
+        if (transferOpen) {
+            transferOpen = false
+            transferEnded()
+        }
         // MediaDataSource lifecycle is managed externally
     }
 }

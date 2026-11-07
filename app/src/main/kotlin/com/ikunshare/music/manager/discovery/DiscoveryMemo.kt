@@ -17,13 +17,14 @@ internal class DiscoveryMemo<K, V>(
 
     suspend fun get(key: K, refresh: Boolean = false, load: suspend () -> V): V {
         val task = mutex.withLock {
-            if (refresh) cache.remove(key)
-            cache[key]?.takeIf { clock() - it.at < ttlMillis }?.let { return it.value }
+            if (!refresh) cache[key]?.takeIf { clock() - it.at < ttlMillis }?.let { return it.value }
             pending[key] ?: scope.async(start = CoroutineStart.LAZY) {
                 try {
                     val value = load()
                     mutex.withLock {
-                        if (cache.size >= 400) cache.keys.take(200).forEach { cache.remove(it) }
+                        if (cache.size >= 400 && key !in cache) {
+                            cache.keys.take(200).forEach { cache.remove(it) }
+                        }
                         cache.remove(key)
                         cache[key] = Hit(clock(), value)
                     }

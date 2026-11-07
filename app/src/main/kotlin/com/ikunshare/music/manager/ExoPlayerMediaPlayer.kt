@@ -44,6 +44,8 @@ class ExoPlayerMediaPlayer(
     private var onCompletionListener: (() -> Unit)? = null
     private var onErrorListener: ((String) -> Unit)? = null
     private var onPreparedListener: ((Long) -> Unit)? = null
+    private var preparedNotificationPending = false
+    private var activeMediaDataSource: MediaDataSource? = null
     private var currentVolume: Float = 1.0f
     private var currentSpeed: Float = 1.0f
 
@@ -86,7 +88,8 @@ class ExoPlayerMediaPlayer(
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     when (playbackState) {
                         Player.STATE_READY -> {
-                            if (this@apply.playWhenReady) {
+                            if (this@apply.playWhenReady && preparedNotificationPending) {
+                                preparedNotificationPending = false
                                 onPreparedListener?.invoke(this@apply.duration)
                             }
                         }
@@ -100,6 +103,8 @@ class ExoPlayerMediaPlayer(
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    preparedNotificationPending = false
+                    closeActiveMediaDataSource()
                     Log.e(TAG, "ExoPlayer error: ${error.message}", error)
                     onErrorListener?.invoke(
                         error.message ?: "ExoPlayer error code=${error.errorCode}"
@@ -107,6 +112,16 @@ class ExoPlayerMediaPlayer(
                 }
             })
         }
+
+    private fun closeActiveMediaDataSource() {
+        val source = activeMediaDataSource ?: return
+        activeMediaDataSource = null
+        try {
+            source.close()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to close media data source", e)
+        }
+    }
 
     override val isPlaying: Boolean
         get() = player.isPlaying
@@ -119,9 +134,11 @@ class ExoPlayerMediaPlayer(
 
     override suspend fun prepareAndPlay(url: String, startPosition: Long) {
         withContext(Dispatchers.Main) {
-            Log.d(TAG, "ExoPlayer.prepareAndPlay url=$url")
+            preparedNotificationPending = true
+            Log.d(TAG, "ExoPlayer.prepareAndPlay")
             player.stop()
             player.clearMediaItems()
+            closeActiveMediaDataSource()
             val mediaItem = MediaItem.fromUri(url)
             player.setMediaItem(mediaItem, startPosition)
             player.playWhenReady = true
@@ -134,9 +151,12 @@ class ExoPlayerMediaPlayer(
         startPosition: Long
     ) {
         withContext(Dispatchers.Main) {
+            preparedNotificationPending = true
             Log.d(TAG, "ExoPlayer.prepareAndPlayWithDataSource")
             player.stop()
             player.clearMediaItems()
+            closeActiveMediaDataSource()
+            activeMediaDataSource = dataSource
 
             val bridgeFactory = MediaDataSourceBridgeFactory(dataSource)
             val mediaSource: MediaSource = ProgressiveMediaSource.Factory(bridgeFactory)
@@ -157,8 +177,10 @@ class ExoPlayerMediaPlayer(
     }
 
     override fun stop() {
+        preparedNotificationPending = false
         player.stop()
         player.clearMediaItems()
+        closeActiveMediaDataSource()
     }
 
     override fun seekTo(position: Long) {
@@ -166,7 +188,9 @@ class ExoPlayerMediaPlayer(
     }
 
     override fun release() {
+        preparedNotificationPending = false
         player.release()
+        closeActiveMediaDataSource()
         cache.release()
     }
 

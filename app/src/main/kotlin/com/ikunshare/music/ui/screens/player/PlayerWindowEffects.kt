@@ -43,13 +43,12 @@ internal fun PlayerWindowEffects(active: Boolean = true) {
         fun applyPlayerWindow() {
             if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
             window.addFlags(keepScreenOn)
-            // BEHAVIOR_DEFAULT: with gesture navigation the back swipe works while the bars are hidden.
-            // TRANSIENT_BARS_BY_SWIPE spent the first back swipe on revealing the bars, so exiting took two.
+            // Only the status bar is hidden. Hiding the navigation bar makes gesture
+            // navigation spend the first back swipe on revealing it, so exiting the
+            // player took two swipes; the gesture pill stays visible instead.
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
             controller.hide(WindowInsetsCompat.Type.statusBars())
-            // Button navigation has no gesture to fall back on: keep its back button one tap away.
-            if (usesButtonNavigation(view)) controller.show(WindowInsetsCompat.Type.navigationBars())
-            else controller.hide(WindowInsetsCompat.Type.navigationBars())
+            controller.show(WindowInsetsCompat.Type.navigationBars())
         }
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -76,16 +75,6 @@ internal fun PlayerWindowEffects(active: Boolean = true) {
             else controller.hide(WindowInsetsCompat.Type.navigationBars())
         }
     }
-}
-
-/**
- * Button (2/3-key) navigation reports a tappable navigation bar; gesture navigation only reserves
- * gesture space. Status bar insets are tappable too, so only the bottom and side edges count.
- */
-private fun usesButtonNavigation(view: View): Boolean {
-    val insets = ViewCompat.getRootWindowInsets(view) ?: return false
-    val tappable = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.tappableElement())
-    return tappable.bottom > 0 || tappable.left > 0 || tappable.right > 0
 }
 
 private tailrec fun Context.playerActivity(): Activity? = when (this) {

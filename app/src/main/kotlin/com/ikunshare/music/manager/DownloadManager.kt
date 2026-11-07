@@ -35,6 +35,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -80,9 +82,19 @@ class DownloadManager(
     private val songItemCache = ConcurrentHashMap<String, MusicItem>()
     private val qualityCache = ConcurrentHashMap<String, Quality>()
 
-    private var semaphore = Semaphore(appSettingsManager.settings.value.maxConcurrentDownloads)
+    @Volatile
+    private var semaphore = Semaphore(appSettingsManager.settings.value.maxConcurrentDownloads.coerceIn(1, 10))
     private val activeJobs = ConcurrentHashMap<String, Job>()
     private val scheduleLock = Any()
+
+    init {
+        scope.launch {
+            appSettingsManager.settings
+                .map { it.maxConcurrentDownloads.coerceIn(1, 10) }
+                .distinctUntilChanged()
+                .collect { semaphore = Semaphore(it) }
+        }
+    }
 
     private val taskFile = AtomicDownloadTaskFile(File(context.filesDir, TASKS_FILE))
     private val taskSaver = DebouncedDownloadTaskSaver(scope, taskFile, ::encodeTasks,
@@ -209,7 +221,14 @@ class DownloadManager(
                 DownloadStatus.DOWNLOADING,
                 DownloadStatus.PAUSED -> return false
 
-                DownloadStatus.COMPLETED,
+                DownloadStatus.COMPLETED -> {
+                    val settings = appSettingsManager.settings.value
+                    if (!settings.downloadOverwriteExisting && isFileAlreadyDownloaded(existing, settings)) {
+                        return false
+                    }
+                    _tasks.update { tasks -> tasks.filter { it.taskKey != taskKey } }
+                }
+
                 DownloadStatus.FAILED -> {
                     _tasks.update { tasks -> tasks.filter { it.taskKey != taskKey } }
                 }
@@ -308,12 +327,14 @@ class DownloadManager(
         if (waiting.isNotEmpty() || downloading.isNotEmpty()) {
             try {
                 DownloadService.start(context)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.w("DownloadManager", "Unable to start download service", e)
             }
         } else if (activeJobs.isEmpty()) {
             try {
                 DownloadService.stop(context)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.w("DownloadManager", "Unable to stop download service", e)
             }
         }
 
@@ -509,6 +530,9 @@ class DownloadManager(
                                 }
                             }
 
+                            if (downloaded <= 0L || downloaded < body.contentLength()) {
+                                throw java.io.IOException("下载内容为空或不完整")
+                            }
                             updateTask(taskKey) {
                                 it.copy(
                                     progress = 1f,
@@ -859,6 +883,9 @@ class DownloadManager(
                                     }
                                 }
                             }
+                            if (downloaded <= 0L || downloaded < body.contentLength()) {
+                                throw java.io.IOException("下载内容为空或不完整")
+                            }
                             updateTask(taskKey) {
                                 it.copy(
                                     progress = 1f,
@@ -1066,7 +1093,11 @@ class DownloadManager(
             if (file.exists() && file.length() > 0) return true
         }
         val subDir = downloadDiscDirectory(task, settings.downloadDiscSubDir)
-        val extension = if (task.qualityId in MP3_QUALITY_IDS) ".mp3" else ".flac"
+        val extension = when {
+            task.qualityId.startsWith("mv_") -> ".mp4"
+            task.qualityId in MP3_QUALITY_IDS -> ".mp3"
+            else -> ".flac"
+        }
         val namingStyle = DownloadNamingStyle.fromKey(settings.downloadNamingStyle)
         val baseName = buildFileName(task, namingStyle)
         val fileName = "$baseName$extension"
@@ -1281,7 +1312,9 @@ class DownloadManager(
 
             // Preserve group order and prefer a finished file or paused transfer over a duplicate pending task.
             val normalized = restored.groupBy { it.first.taskKey }.values.map { group ->
-                group.maxBy { downloadRestorePriority(it.first) }
+                val selected = group.maxBy { downloadRestorePriority(it.first) }
+                val song = selected.second ?: group.firstNotNullOfOrNull { it.second }
+                selected.first to song
             }
             normalized.forEach { (task, song) ->
                 if (song != null) {

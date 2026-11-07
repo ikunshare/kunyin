@@ -19,6 +19,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,8 +51,17 @@ internal class LyricTextStyles(
     val annotation: TextStyle,
 )
 
-/** 每帧共享的时钟：插帧后的播放位置与墙钟（ms）。只在 draw 阶段读取。 */
-internal class LyricFrameClock(val position: State<Long>, val wallMs: State<Long>)
+/** 每帧共享的时钟：插帧后的播放位置、墙钟（ms）与是否正在驱动动画。只在 draw 阶段读取。 */
+internal class LyricFrameClock(
+    val position: State<Long>, val wallMs: State<Long>, val running: State<Boolean>,
+) {
+    val windDownUntilMs = mutableLongStateOf(0L)
+
+    fun requestWindDown(durationMs: Long) {
+        val deadline = System.nanoTime() / 1_000_000L + durationMs.coerceAtLeast(0L)
+        if (deadline > windDownUntilMs.longValue) windDownUntilMs.longValue = deadline
+    }
+}
 
 private val LyricWhite = Color.White
 
@@ -59,7 +69,7 @@ private val LyricWhite = Color.White
  * 一条唱词行（对应 `NormalLineElement`）：主词（逐字 / 整行）→ 背景人声子行 → 翻译 → 音译 → AI 谐音。
  *
  * 不透明度分层与桌面端一致：行容器 0.6/1/0.4（0.6s ease）× 元素自身 0.6/1/0.4（0.8s ease，激活瞬时）。
- * 两层都折算进文字颜色，不产生图层 alpha 的离屏合成。
+ * 两层折算进文字透明度；运动单元由缓存图层合成透明度与位移。
  */
 @Composable
 internal fun LyricNormalLine(
@@ -106,7 +116,7 @@ internal fun LyricNormalLine(
             wasActive[0] = true
             anim.activate()
         } else if (wasActive[0]) {
-            anim.deactivate((clock.position.value - line.timestamp).toFloat(), clock.wallMs.value)
+            anim.deactivate((clock.position.value - line.animationStart).toFloat(), clock.wallMs.value)
         }
     }
 
@@ -148,7 +158,7 @@ internal fun LyricNormalLine(
         if (hasCharLyrics && line.hasCharLyrics) {
             SyllableRow(
                 chars = line.characters.orEmpty(),
-                lineStart = minOf(line.timestamp, line.characters?.firstOrNull()?.startTime ?: line.timestamp),
+                lineStart = line.animationStart,
                 lineEnd = line.getEndTime(),
                 style = fittedMain,
                 romanStyle = romanStyle,
@@ -201,7 +211,7 @@ internal fun LyricNormalLine(
                 val charRoman = line.charRomanization.orEmpty()
                 SyllableRow(
                     chars = charRoman,
-                    lineStart = minOf(line.timestamp, line.characters?.firstOrNull()?.startTime ?: line.timestamp),
+                    lineStart = line.animationStart,
                     lineEnd = charRoman.lastOrNull()?.endTime ?: line.getEndTime(),
                     style = styles.annotation,
                     romanStyle = null,
@@ -216,6 +226,7 @@ internal fun LyricNormalLine(
                     clock = clock,
                     anim = anim,
                     measurer = measurer,
+                    stateOpacity = config.annotationOpacity,
                 )
             } else {
                 BasicText(romanText, Modifier.fillMaxWidth(), styles.annotation.copy(textAlign = subAlign), color = annotationColor)
@@ -254,7 +265,7 @@ private fun BackgroundRow(
             clock = clock,
             anim = anim,
             measurer = measurer,
-            relativeTimeBase = bg.timestamp - minOf(line.timestamp, line.characters?.firstOrNull()?.startTime ?: line.timestamp),
+            relativeTimeBase = bg.timestamp - line.animationStart,
         )
     } else {
         BasicText(bg.text, Modifier.fillMaxWidth(), style.copy(textAlign = if (alignEnd) TextAlign.End else TextAlign.Start),
@@ -297,15 +308,17 @@ private fun SyllableRow(
     clock: LyricFrameClock,
     anim: LineAnimState,
     measurer: TextMeasurer,
+    stateOpacity: LyricStateOpacity = config.mainOpacity,
     relativeTimeBase: Long = 0L,
 ) {
     val density = LocalDensity.current
-    val layout = remember(chars, style, romanStyle, maxWidth, alignEnd, config, emphasizeEnabled, isBackground) {
+    val layout = remember(chars, lineStart, lineEnd, style, romanStyle, maxWidth, alignEnd, config,
+        emphasizeEnabled, isBackground, measurer, density) {
         buildSyllableLayout(chars, lineStart, lineEnd, style, romanStyle, maxWidth, alignEnd, measurer, density,
             config, emphasizeEnabled, isBackground)
     }
     val painter = remember(config) { SyllablePainter(config) }
-    val maskNormalAlpha = config.mainOpacity.normal / config.mainOpacity.active
+    val maskNormalAlpha = stateOpacity.normal / stateOpacity.active
     val widthDp = with(density) { layout.width.toDp() }
     val heightDp = with(density) { layout.height.toDp() }
     val windDownMs = remember(layout) { layout.windDownMs(config) }
@@ -313,6 +326,11 @@ private fun SyllableRow(
     val graphicsContext = LocalGraphicsContext.current
     val layers = remember(layout, graphicsContext) { SyllableLayerCache(graphicsContext) }
     DisposableEffect(layers) { onDispose { layers.releaseAll() } }
+    val wasActive = remember { arrayOf(false) }
+    LaunchedEffect(active, windDownMs, clock) {
+        if (!active && wasActive[0]) clock.requestWindDown(windDownMs)
+        wasActive[0] = active
+    }
 
     Box(
         Modifier
@@ -330,8 +348,8 @@ private fun SyllableRow(
                     // 只在退场动画未结束时订阅墙钟，结束后不再逐帧重绘
                     wall = localAnim.wallIfWindingDown(clock.wallMs, windDownMs)
                 }
-                // 激活行与退场收尾中的行有运动，走离屏图层；静止后直接绘制并释放图层
-                val moving = active || wall < WIND_DOWN_DONE
+                // 播放中的激活行与退场收尾中的行有运动；暂停的静态行直接绘制并释放图层
+                val moving = if (active) clock.running.value else wall < WIND_DOWN_DONE
                 if (!moving && !layers.isEmpty) layers.releaseAll()
                 painter.draw(this, layout, color, a, active, rel, wall, localAnim.state, maskNormalAlpha,
                     if (moving) layers else null)
@@ -394,7 +412,7 @@ private fun rememberFittedSyllableOrPlain(
     line: LyricLine, base: TextStyle, availableWidthPx: Int, config: LyricPlayerConfig, measurer: TextMeasurer,
 ): TextStyle {
     val density = LocalDensity.current
-    return remember(line.text, base, availableWidthPx, config.fitMaxLines, config.fitMinScale) {
+    return remember(line.text, line.characters, base, availableWidthPx, config, measurer, density) {
         if (availableWidthPx <= 0 || line.text.isBlank() || base.fontSize.value <= 0f) return@remember base
         val minValue = base.fontSize.value * config.fitMinScale
         var current = base.fontSize.value
@@ -402,7 +420,7 @@ private fun rememberFittedSyllableOrPlain(
             val style = base.copy(fontSize = size.sp, lineHeight = (size * 1.3f).sp)
             return if (line.hasCharLyrics) {
                 buildSyllableLayout(line.characters.orEmpty(), line.timestamp, line.getEndTime(), style, null,
-                    availableWidthPx.toFloat(), false, measurer, density, config, false, false).rowCount
+                    availableWidthPx.toFloat(), false, measurer, density, config, false, false, measureOnly = true).rowCount
             } else {
                 measurer.measure(line.text, style, constraints = Constraints(maxWidth = availableWidthPx)).lineCount
             }

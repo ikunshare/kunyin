@@ -50,7 +50,7 @@ class SettingsViewModel(
     private val backupOperations by lazy { BackupOperationRunner(viewModelScope) }
     val isBackupBusy: StateFlow<Boolean> get() = backupOperations.busy
 
-    private val _cacheSizeBytes = MutableStateFlow(audioCache.getCacheSize())
+    private val _cacheSizeBytes = MutableStateFlow(0L)
     val cacheSizeBytes: StateFlow<Long> = _cacheSizeBytes.asStateFlow()
 
     private val _lyricCacheCount = MutableStateFlow(musicRepository.lyricCacheSize())
@@ -70,30 +70,43 @@ class SettingsViewModel(
     fun logoutAuth() = authManager.logout()
 
     fun refreshCacheInfo() {
-        _cacheSizeBytes.value = audioCache.getCacheSize()
-        _lyricCacheCount.value = musicRepository.lyricCacheSize()
-        _mediaInfoCacheCount.value = musicRepository.mediaInfoCacheSize()
+        viewModelScope.launch(Dispatchers.IO) {
+            _cacheSizeBytes.value = audioCache.getCacheSize()
+            _lyricCacheCount.value = musicRepository.lyricCacheSize()
+            _mediaInfoCacheCount.value = musicRepository.mediaInfoCacheSize()
+        }
     }
 
     fun clearAudioCache() {
-        audioCache.clearCache()
-        _cacheSizeBytes.value = 0L
+        viewModelScope.launch(Dispatchers.IO) {
+            audioCache.clearCache()
+            _cacheSizeBytes.value = 0L
+        }
     }
 
     fun clearLyricCache() {
-        musicRepository.clearLyricCache()
-        _lyricCacheCount.value = 0
+        viewModelScope.launch(Dispatchers.IO) {
+            musicRepository.clearLyricCache()
+            _lyricCacheCount.value = 0
+        }
     }
 
     fun clearMediaInfoCache() {
-        musicRepository.clearMediaInfoCache()
-        _mediaInfoCacheCount.value = 0
+        viewModelScope.launch(Dispatchers.IO) {
+            musicRepository.clearMediaInfoCache()
+            _mediaInfoCacheCount.value = 0
+        }
     }
 
     fun clearAllCaches() {
-        clearAudioCache()
-        clearLyricCache()
-        clearMediaInfoCache()
+        viewModelScope.launch(Dispatchers.IO) {
+            audioCache.clearCache()
+            musicRepository.clearLyricCache()
+            musicRepository.clearMediaInfoCache()
+            _cacheSizeBytes.value = 0L
+            _lyricCacheCount.value = 0
+            _mediaInfoCacheCount.value = 0
+        }
     }
 
     fun saveCredential(providerKey: String, creds: ProviderCredentials?) {

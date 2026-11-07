@@ -16,6 +16,7 @@ import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -40,6 +41,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.TrendingFlat
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
@@ -117,7 +119,7 @@ import kotlinx.coroutines.launch
 /**
  * 播放页面
  *
- * 手机竖屏切换封面与歌词；宽屏并排显示控制面板和歌词。
+ * 窄屏通过分页切换封面与歌词；宽屏并排显示控制面板和歌词，与设备方向解耦。
  * 保留播放、队列、音质、定时停止和歌曲操作入口。
  */
 @SuppressLint("LocalContextGetResourceValueCall")
@@ -237,20 +239,33 @@ fun PlayerScreen(
     }
 
     val onShareClick: () -> Unit = {
-        uiState.currentSong?.let { song ->
-            val shareText = com.ikunshare.music.MusicApplication.instance?.musicRepository
-                ?.getProvider(song.getTypeDiscriminator())?.share(song)
-                ?: "${song.title} - ${song.artist}"
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, shareText)
+        val song = uiState.currentSong
+        if (song == null) {
+            Toast.makeText(context, R.string.song_info_not_loaded, Toast.LENGTH_SHORT).show()
+        } else {
+            try {
+                val fallback = listOf(song.title, song.artist)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" - ")
+                val shareText = com.ikunshare.music.MusicApplication.instance?.musicRepository
+                    ?.getProvider(song.getTypeDiscriminator())?.share(song)
+                    ?.takeIf { it.isNotBlank() }
+                    ?: fallback
+                if (shareText.isBlank()) {
+                    Toast.makeText(context, R.string.share_failed, Toast.LENGTH_SHORT).show()
+                } else {
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, shareText)
+                    }
+                    context.startActivity(
+                        Intent.createChooser(intent, context.getString(R.string.share_song))
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w("KunSound", "Unable to share song", e)
+                Toast.makeText(context, R.string.share_failed, Toast.LENGTH_SHORT).show()
             }
-            context.startActivity(
-                Intent.createChooser(
-                    intent,
-                    context.getString(R.string.share_song)
-                )
-            )
         }
     }
 
@@ -297,11 +312,12 @@ fun PlayerScreen(
     }
 
     val playerBackdrop = rememberLayerBackdrop()
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(rootBgColor)
     ) {
+        val isLandscape = maxWidth > maxHeight
         // 背景层
         Box(Modifier.fillMaxSize().layerBackdrop(playerBackdrop)) {
             PlayerBackground(appSettings = appSettings, coverBitmap = coverBitmap, coverKey = coverUrl ?: "")
@@ -330,7 +346,6 @@ fun PlayerScreen(
                     onMode = viewModel::cyclePlayMode, onFavorite = viewModel::toggleFavorite,
                     onMore = { showMoreActions = true }, onQuality = { showPlaybackQuality = true },
                     onQueue = { showPlayQueue = true }, onTimer = { showSleepTimer = true },
-                    onOutput = { openMediaOutputPanel(context) },
                     onTranslation = lyricsViewModel::toggleTranslation,
                     onRomanization = lyricsViewModel::toggleRomanization,
                     onPhonetic = lyricsViewModel::togglePhonetic,
@@ -347,12 +362,13 @@ fun PlayerScreen(
                 onDismiss = { showPlaybackQuality = false }
             )
         }
-        val snackbarBottomPadding = 300.dp
+        val snackbarBottomPadding = if (isLandscape) 24.dp else 300.dp
         // 错误提示
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
                 .padding(bottom = snackbarBottomPadding)
         ) { data ->
             Snackbar(
@@ -430,6 +446,10 @@ fun PlayerScreen(
                     onShareClick()
                 },
                 onCommentsClick = { showMoreActions = false; showComments = true },
+                onOutputClick = {
+                    showMoreActions = false
+                    openMediaOutputPanel(context)
+                },
                 onInfoClick = { infoSong = uiState.currentSong; showMoreActions = false },
                 onPlayModeClick = viewModel::cyclePlayMode,
                 downloadBusy = downloadQueue.isEnqueuing || pendingDownloadRequest != null,
@@ -447,6 +467,7 @@ fun PlayerScreen(
             val queueSource by viewModel.queueSource.collectAsState()
             PlayQueueSheet(
                 playlist = queueSongs,
+                sourceKey = queueSource?.let { "${it.kind}:${it.id}" }.orEmpty(),
                 sourceName = queueSource?.name.orEmpty(),
                 currentIndex = viewModel.getCurrentIndex(),
                 playNextQueue = viewModel.getPlayNextQueue(),
@@ -473,7 +494,12 @@ private fun openMediaOutputPanel(context: android.content.Context) {
     try {
         context.startActivity(intent)
     } catch (_: Exception) {
-        context.startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
+        try {
+            context.startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
+        } catch (e: Exception) {
+            Log.w("KunSound", "Unable to open media output settings", e)
+            Toast.makeText(context, R.string.media_output_failed, Toast.LENGTH_SHORT).show()
+        }
     }
 }
 
@@ -486,6 +512,7 @@ private fun ApplePlayerMoreSheet(
     onAddToPlaylistClick: () -> Unit,
     onShareClick: () -> Unit,
     onCommentsClick: () -> Unit,
+    onOutputClick: () -> Unit,
     onInfoClick: () -> Unit,
     onPlayModeClick: () -> Unit,
     downloadBusy: Boolean,
@@ -550,12 +577,19 @@ private fun ApplePlayerMoreSheet(
                     onClick = onShareClick
                 )
                 AppleMoreDivider()
+                AppleMoreActionRow(
+                    icon = Icons.AutoMirrored.Filled.VolumeUp,
+                    title = stringResource(R.string.media_output),
+                    iconTint = Color(0xFF64D2FF),
+                    onClick = onOutputClick
+                )
+                AppleMoreDivider()
                 AppleMoreActionRow(icon = Icons.Filled.Info, title = stringResource(R.string.song_info_title),
                     enabled = song != null, onClick = onInfoClick)
                 AppleMoreDivider()
                 AppleMoreActionRow(
                     icon = playModeIcon(playMode),
-                    title = "播放模式",
+                    title = stringResource(R.string.play_mode),
                     trailingText = playMode.label,
                     iconTint = Color(0xFFFF375F),
                     onClick = onPlayModeClick
@@ -586,7 +620,7 @@ private fun ApplePlayerMoreSheet(
                     }
                     if (aiQualities.isNotEmpty()) {
                         AppleMoreSectionLabel(
-                            text = "AI 升频",
+                            text = stringResource(R.string.ai_upscaling),
                             modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp)
                         )
                     }
@@ -622,7 +656,7 @@ private fun AppleMoreSheetHeader(song: MusicItem?) {
         Spacer(modifier = Modifier.width(13.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = song?.title?.takeIf { it.isNotBlank() } ?: "更多",
+                text = song?.title?.takeIf { it.isNotBlank() } ?: stringResource(R.string.more_actions),
                 modifier = Modifier
                     .fillMaxWidth()
                     .basicMarquee(),
@@ -843,24 +877,37 @@ private fun QualityBottomSheet(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface
     ) {
-        Column(modifier = Modifier.padding(bottom = 24.dp)) {
+        Column(
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 24.dp)
+        ) {
             Text(
                 stringResource(R.string.quality_select),
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
             )
+            if (availableQualities.isEmpty()) {
+                Text(
+                    stringResource(R.string.no_quality_available),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
+                )
+            }
 
             standardQualities.forEach { quality ->
                 QualitySheetItem(quality, currentQuality, onQualitySelect)
             }
 
-            if (aiQualities.isNotEmpty() && standardQualities.isNotEmpty()) {
-                HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
-                )
+            if (aiQualities.isNotEmpty()) {
+                if (standardQualities.isNotEmpty()) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                    )
+                }
                 Text(
-                    "AI 升频",
+                    stringResource(R.string.ai_upscaling),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)
@@ -914,6 +961,7 @@ private fun QualitySheetItem(
 @Composable
 private fun PlayQueueSheet(
     playlist: List<MusicItem>,
+    sourceKey: String,
     sourceName: String,
     currentIndex: Int,
     playNextQueue: List<MusicItem>,
@@ -934,9 +982,9 @@ private fun PlayQueueSheet(
         .coerceIn(180.dp, 400.dp)
 
     // 初始滚动到当前播放歌曲
-    LaunchedEffect(currentIndex) {
+    LaunchedEffect(currentIndex, sourceKey) {
         if (currentIndex >= 0 && currentIndex < playlist.size) {
-            playlistListState.scrollToItem(currentIndex.coerceAtLeast(0))
+            playlistListState.scrollToItem(currentIndex)
         }
     }
 
@@ -945,7 +993,7 @@ private fun PlayQueueSheet(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
             // Tab 栏
             Row(
                 modifier = Modifier
@@ -1042,7 +1090,15 @@ private fun PlayQueueSheet(
                     when (page) {
                         0 -> {
                             // 播放列表
-                            LazyColumn(
+                            if (playlist.isEmpty()) {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = stringResource(R.string.no_data),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            } else LazyColumn(
                                 state = playlistListState,
                                 modifier = Modifier.fillMaxSize()
                             ) {

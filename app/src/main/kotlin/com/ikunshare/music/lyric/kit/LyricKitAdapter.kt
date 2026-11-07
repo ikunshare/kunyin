@@ -96,6 +96,8 @@ object LyricKitAdapter {
         val primaryAgentId = Runtime.getPrimaryAgent(mainInfo)?.id
 
         // 保序遍历所有行：普通行按 normalIndex 对齐各辅助歌词，间奏行独立映射；背景/对唱一并带出。
+        // LRC 正值表示提前显示，因此写入模型时需要减去原始 offset
+        val timeOffset = -(mainInfo.meta?.offset?.toLong() ?: 0L)
         var normalIndex = 0
         val lines = mainInfo.lines.mapNotNull { line ->
             when (line) {
@@ -141,7 +143,7 @@ object LyricKitAdapter {
                 }
 
             }
-        }.sortedBy { it.timestamp }
+        }.map { it.shiftedBy(timeOffset) }.sortedBy { it.timestamp }
 
         return ParsedLyric(
             lines = lines,
@@ -226,10 +228,16 @@ object LyricKitAdapter {
             if (line !is LineNormal) continue
             fixWordDurations(line.content?.words, line.time?.end)
             for (background in line.backgrounds) fixWordDurations(background.content?.words, background.time?.end)
-            val end = (line.content?.words.orEmpty().filterIsInstance<WordNormal>() +
-                line.backgrounds.flatMap { it.content?.words.orEmpty().filterIsInstance<WordNormal>() })
-                .maxOfOrNull { it.time?.end ?: 0 }
-            if (end != null && end > (line.time?.end ?: 0)) line.time?.end = end
+            var end = line.time?.end ?: 0
+            for (word in line.content?.words.orEmpty()) {
+                if (word is WordNormal) end = maxOf(end, word.time?.end ?: 0)
+            }
+            for (background in line.backgrounds) {
+                for (word in background.content?.words.orEmpty()) {
+                    if (word is WordNormal) end = maxOf(end, word.time?.end ?: 0)
+                }
+            }
+            if (end > (line.time?.end ?: 0)) line.time?.end = end
         }
     }
 
@@ -240,7 +248,14 @@ object LyricKitAdapter {
             val w = normals[j]
             val t = w.time ?: continue
             if (t.end <= t.start) {
-                val next = normals.drop(j + 1).firstOrNull { (it.time?.start ?: 0) > t.start }?.time?.start
+                var next: Int? = null
+                for (k in j + 1 until normals.size) {
+                    val start = normals[k].time?.start ?: continue
+                    if (start > t.start) {
+                        next = start
+                        break
+                    }
+                }
                 t.end = next ?: lineEnd?.takeIf { it > t.start } ?: (t.start + estimateCharDuration(w.content))
             }
         }
@@ -254,8 +269,10 @@ object LyricKitAdapter {
 
     private fun attachWordRomans(main: List<LyricChar>?, roman: List<LyricChar>?): List<LyricChar>? {
         if (main.isNullOrEmpty() || roman.isNullOrEmpty()) return main
+        val exactMatches = HashMap<Long, Int>(main.size)
+        main.forEachIndexed { index, word -> exactMatches.putIfAbsent(word.startTime, index) }
         val assignments = roman.groupBy { syllable ->
-            main.indexOfFirst { it.startTime == syllable.startTime }.takeIf { it >= 0 } ?: main.indices.maxWithOrNull(
+            exactMatches[syllable.startTime] ?: main.indices.maxWithOrNull(
                 compareBy<Int> { index ->
                 val word = main[index]
                 minOf(word.endTime.coerceAtLeast(word.startTime + 1), syllable.endTime.coerceAtLeast(syllable.startTime + 1)) -
@@ -305,6 +322,29 @@ object LyricKitAdapter {
             null
         }
     }
+
+    private fun LyricLine.shiftedBy(offset: Long): LyricLine {
+        if (offset == 0L) return this
+        return copy(
+            timestamp = timestamp + offset,
+            endTimestamp = endTimestamp?.plus(offset),
+            characters = characters?.map { it.shiftedBy(offset) },
+            charRomanization = charRomanization?.map { it.shiftedBy(offset) },
+            backgrounds = backgrounds.map { it.shiftedBy(offset) },
+        )
+    }
+
+    private fun LyricChar.shiftedBy(offset: Long): LyricChar = copy(
+        startTime = startTime + offset,
+        endTime = endTime + offset,
+        romanizationWords = romanizationWords.map { it.shiftedBy(offset) },
+    )
+
+    private fun LyricBackground.shiftedBy(offset: Long): LyricBackground = copy(
+        timestamp = timestamp + offset,
+        endTimestamp = endTimestamp + offset,
+        characters = characters?.map { it.shiftedBy(offset) },
+    )
 
     /** 背景/和声行 -> LyricBackground 列表。 */
     private fun buildBackgrounds(line: LineNormal, timing: Timing): List<LyricBackground> {
@@ -369,8 +409,18 @@ object LyricKitAdapter {
     /** 原始辅助轨已对齐，这里按时间查找变换后的正文行，容错 50ms。 */
     private fun <T> alignByTime(mainTs: List<Long>, aux: List<Pair<Long, T>>): List<T?> {
         if (aux.isEmpty()) return List(mainTs.size) { null }
+        val sorted = aux.sortedBy { it.first }
         return mainTs.map { ts ->
-            val nearest = aux.minByOrNull { abs(it.first - ts) }
+            val result = sorted.binarySearchBy(ts) { it.first }
+            val insertion = if (result >= 0) result else -result - 1
+            val left = sorted.getOrNull(insertion - 1)
+            val right = sorted.getOrNull(insertion)
+            val nearest = when {
+                left == null -> right
+                right == null -> left
+                abs(left.first - ts) <= abs(right.first - ts) -> left
+                else -> right
+            }
             if (nearest != null && abs(nearest.first - ts) <= ALIGN_TOLERANCE_MS) nearest.second else null
         }
     }

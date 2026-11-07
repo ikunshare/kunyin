@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -19,6 +20,7 @@ import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.View
 import com.ikunshare.music.model.LyricLine
+import kotlin.math.roundToInt
 
 /**
  * 桌面歌词浮窗自定义 View
@@ -31,6 +33,7 @@ class FloatingLyricsView(context: Context) : View(context) {
     private var currentLine: LyricLine? = null
     private var basePosition: Long = 0L
     private var baseNanoTime: Long = System.nanoTime()
+    private var playbackRate: Float = 1f
     var isPlaying: Boolean = false
         private set
 
@@ -111,13 +114,22 @@ class FloatingLyricsView(context: Context) : View(context) {
     private var cachedHighlightLayout: StaticLayout? = null
     private var cachedHighlightText: String = ""
     private var cachedHighlightWidth: Int = 0
+    private var cachedRomanHighlightLayout: StaticLayout? = null
+    private var cachedRomanHighlightText: String = ""
+    private var cachedRomanHighlightWidth: Int = 0
+    private var cachedCharacters: List<com.ikunshare.music.model.LyricChar>? = null
+    private var cachedCharacterText: String? = null
+    private var cachedCharacterOffsets: IntArray? = null
+    private val karaokeClipPath = Path()
 
     // ── 触摸 ──
     private var dragStartRawX: Float = 0f
     private var dragStartRawY: Float = 0f
     private var isDragging = false
     private var dragCallback: ((Float, Float) -> Unit)? = null
+    private var dragFinishedCallback: (() -> Unit)? = null
     var onLockClickListener: (() -> Unit)? = null
+    var onDisplayConfigurationChanged: (() -> Unit)? = null
     private val lockIconRect = RectF()
 
     // ── Choreographer ──
@@ -140,6 +152,11 @@ class FloatingLyricsView(context: Context) : View(context) {
     private val lineSpacing = dp(4f).toInt()
     private val dragThreshold = dp(4f)
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        onDisplayConfigurationChanged?.invoke()
+    }
+
     private fun sp(value: Float): Float =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
 
@@ -148,11 +165,12 @@ class FloatingLyricsView(context: Context) : View(context) {
 
     // ── 公开接口 ──
 
-    fun updateLyricData(line: LyricLine?, position: Long, playing: Boolean) {
+    fun updateLyricData(line: LyricLine?, position: Long, playing: Boolean, rate: Float) {
         val textChanged = line?.text != currentLine?.text
         currentLine = line
         basePosition = position
         baseNanoTime = System.nanoTime()
+        playbackRate = rate.coerceAtLeast(0f)
         isPlaying = playing
 
         if (textChanged) {
@@ -180,7 +198,9 @@ class FloatingLyricsView(context: Context) : View(context) {
     }
 
     fun setPlayedColor(color: Int) {
-        playedPaint.color = color or 0xFF000000.toInt()
+        val opaqueColor = color or 0xFF000000.toInt()
+        playedPaint.color = opaqueColor
+        playedRomanPaint.color = opaqueColor
         invalidate()
     }
 
@@ -195,8 +215,8 @@ class FloatingLyricsView(context: Context) : View(context) {
     }
 
     fun setBgOpacity(opacity: Float) {
-        val normalized = opacity.coerceIn(0f, 1f)
-        alpha = if (normalized >= 0.995f) 1f else normalized
+        bgPaint.alpha = (opacity.coerceIn(0f, 1f) * 255f).roundToInt()
+        invalidate()
     }
 
     fun setMaxLines(lines: Int) {
@@ -246,12 +266,20 @@ class FloatingLyricsView(context: Context) : View(context) {
         invalidate()
     }
 
-    fun setDragCallback(callback: ((Float, Float) -> Unit)?) {
+    fun setDragCallback(
+        callback: ((Float, Float) -> Unit)?,
+        onFinished: (() -> Unit)? = null,
+    ) {
         dragCallback = callback
+        dragFinishedCallback = onFinished
     }
 
     fun release() {
         choreographerRunning = false
+        onLockClickListener = null
+        onDisplayConfigurationChanged = null
+        dragCallback = null
+        dragFinishedCallback = null
         try {
             choreographer.removeFrameCallback(frameCallback)
         } catch (_: Exception) {
@@ -353,7 +381,8 @@ class FloatingLyricsView(context: Context) : View(context) {
         canvas.translate(paddingH.toFloat(), paddingV.toFloat())
 
         val interpolatedPos = if (isPlaying) {
-            basePosition + (System.nanoTime() - baseNanoTime) / 1_000_000L
+            val elapsedMs = ((System.nanoTime() - baseNanoTime) / 1_000_000L).toFloat()
+            basePosition + (elapsedMs * playbackRate).toLong()
         } else {
             basePosition
         }
@@ -368,7 +397,7 @@ class FloatingLyricsView(context: Context) : View(context) {
                 mainLayout
             )
         } else {
-            getHighlightedMainLayout(text, contentWidth).draw(canvas)
+            getHighlightedLayout(text, contentWidth).draw(canvas)
         }
 
         var yOffset = mainLayout.height.toFloat()
@@ -421,12 +450,21 @@ class FloatingLyricsView(context: Context) : View(context) {
         layout.draw(canvas)
 
         // 计算逐字偏移表（clamp 到 text 长度，防止 characters 与 text 不完全一致）
-        val textLen = text.length
-        var charOffsetAccum = 0
-        val charOffsets = characters.map { c ->
-            val start = charOffsetAccum.coerceAtMost(textLen)
-            charOffsetAccum += c.char.length
-            start to charOffsetAccum.coerceAtMost(textLen)
+        val cachedOffsets = cachedCharacterOffsets
+        val charOffsets = if (cachedCharacters === characters && cachedCharacterText == text && cachedOffsets != null) {
+            cachedOffsets
+        } else {
+            val offsets = IntArray(characters.size * 2)
+            var offset = 0
+            for ((index, character) in characters.withIndex()) {
+                offsets[index * 2] = offset.coerceAtMost(text.length)
+                offset += character.char.length
+                offsets[index * 2 + 1] = offset.coerceAtMost(text.length)
+            }
+            cachedCharacters = characters
+            cachedCharacterText = text
+            cachedCharacterOffsets = offsets
+            offsets
         }
 
         // 计算 rawProgress（参考 CharacterLyricText 的 linearX 逻辑）
@@ -451,14 +489,7 @@ class FloatingLyricsView(context: Context) : View(context) {
 
         val allDone = rawProgress >= characters.size
 
-        // 创建已播放文本的 StaticLayout
-        val playedLayout = StaticLayout.Builder
-            .obtain(text, 0, text.length, activePaint, textWidth)
-            .setAlignment(alignment)
-            .setIncludePad(false)
-            .setMaxLines(maxLines)
-            .setEllipsize(TextUtils.TruncateAt.END)
-            .build()
+        val playedLayout = getHighlightedLayout(text, textWidth, activePaint)
 
         if (allDone) {
             playedLayout.draw(canvas)
@@ -469,7 +500,7 @@ class FloatingLyricsView(context: Context) : View(context) {
         val charFrac = rawProgress - rawProgress.toInt()
 
         // 计算 linearX
-        val fillOffset = charOffsets[charIdx].first
+        val fillOffset = charOffsets[charIdx * 2]
         val charLine = layout.getLineForOffset(fillOffset)
         var accumulated = 0f
         for (line in 0 until charLine) {
@@ -477,14 +508,14 @@ class FloatingLyricsView(context: Context) : View(context) {
         }
         val lineLeft = layout.getLineLeft(charLine)
         val startX = layout.getPrimaryHorizontal(fillOffset)
-        val endX = layout.getPrimaryHorizontal(charOffsets[charIdx].second)
+        val endX = layout.getPrimaryHorizontal(charOffsets[charIdx * 2 + 1])
         val effectiveEndX = if (endX >= startX) endX else layout.getLineRight(charLine)
         val currentX = startX + (effectiveEndX - startX) * charFrac
         accumulated += currentX - lineLeft
         var remaining = accumulated
 
         // 逐行构建裁切路径
-        val path = Path()
+        val path = karaokeClipPath.apply { rewind() }
         for (line in 0 until layout.lineCount) {
             if (remaining <= 0f) break
             val lLeft = layout.getLineLeft(line)
@@ -537,14 +568,14 @@ class FloatingLyricsView(context: Context) : View(context) {
             }
 
             MotionEvent.ACTION_UP -> {
-                if (!isDragging && lockIconRect.contains(event.x, event.y)) {
-                    onLockClickListener?.invoke()
-                }
+                if (isDragging) dragFinishedCallback?.invoke()
+                else if (lockIconRect.contains(event.x, event.y)) onLockClickListener?.invoke()
                 isDragging = false
                 return true
             }
 
             MotionEvent.ACTION_CANCEL -> {
+                if (isDragging) dragFinishedCallback?.invoke()
                 isDragging = false
                 return true
             }
@@ -580,6 +611,9 @@ class FloatingLyricsView(context: Context) : View(context) {
         cachedHighlightLayout = null
         cachedHighlightText = ""
         cachedHighlightWidth = 0
+        cachedRomanHighlightLayout = null
+        cachedRomanHighlightText = ""
+        cachedRomanHighlightWidth = 0
     }
 
     private fun getMainLayout(text: String, width: Int): StaticLayout {
@@ -599,20 +633,28 @@ class FloatingLyricsView(context: Context) : View(context) {
         return layout
     }
 
-    private fun getHighlightedMainLayout(text: String, width: Int): StaticLayout {
-        if (cachedHighlightLayout != null && cachedHighlightText == text && cachedHighlightWidth == width) {
-            return cachedHighlightLayout!!
-        }
+    private fun getHighlightedLayout(text: String, width: Int, paint: TextPaint = playedPaint): StaticLayout {
+        val roman = paint === playedRomanPaint
+        val cached = if (roman) cachedRomanHighlightLayout else cachedHighlightLayout
+        val cachedText = if (roman) cachedRomanHighlightText else cachedHighlightText
+        val cachedWidth = if (roman) cachedRomanHighlightWidth else cachedHighlightWidth
+        if (cached != null && cachedText == text && cachedWidth == width) return cached
         val layout = StaticLayout.Builder
-            .obtain(text, 0, text.length, playedPaint, width)
+            .obtain(text, 0, text.length, paint, width)
             .setAlignment(alignment)
             .setIncludePad(false)
             .setMaxLines(maxLines)
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
-        cachedHighlightLayout = layout
-        cachedHighlightText = text
-        cachedHighlightWidth = width
+        if (roman) {
+            cachedRomanHighlightLayout = layout
+            cachedRomanHighlightText = text
+            cachedRomanHighlightWidth = width
+        } else {
+            cachedHighlightLayout = layout
+            cachedHighlightText = text
+            cachedHighlightWidth = width
+        }
         return layout
     }
 

@@ -4,8 +4,8 @@ plugins {
 }
 
 var applicationName = "坤音"
-var verName = "1.0.0-β"
-var verCode = 1002
+var verName = "1.0.1"
+var verCode = 1003
 
 val signingPropertyNames = listOf(
     "KEYSTORE_STORE_FILE",

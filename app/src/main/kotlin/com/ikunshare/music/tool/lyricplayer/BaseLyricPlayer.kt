@@ -71,7 +71,7 @@ private class LyricLineMerger {
     private fun rawEndTime(index: Int): Long {
         if (index !in lines.indices) return 0L
         if (index == lines.lastIndex) return Long.MAX_VALUE
-        val nextStart = lines[index + 1].timestamp
+        val nextStart = lines[index + 1].animationStart
         return maxOf(lines[index].getEndTime(nextStart), nextStart)
     }
 }
@@ -138,7 +138,7 @@ class BaseLyricPlayer(
 
         for (index in info.lines.indices) {
             val line = info.lines[index]
-            if (line.timestamp > effective) break
+            if (line.animationStart > effective) break
             if (merger.getMergedTime(index) > effective) {
                 lines.add(line)
                 indexes.add(index)
@@ -158,8 +158,8 @@ class BaseLyricPlayer(
         var next = Long.MAX_VALUE
         for (index in info.lines.indices) {
             val line = info.lines[index]
-            if (line.timestamp > effective) {
-                next = minOf(next, line.timestamp)
+            if (line.animationStart > effective) {
+                next = minOf(next, line.animationStart)
                 break
             }
             val end = merger.getMergedTime(index)
@@ -178,10 +178,10 @@ class BaseLyricPlayer(
     fun convertContentTime(contentTime: Long): Long = contentTime - currentOffset
 
     val currentLines: List<LyricLine>
-        get() = bridgeActive(activeLines, activeIndexes).lines
+        get() = activeLines
 
     val currentIndex: List<Int>
-        get() = bridgeActive(activeLines, activeIndexes).indexes
+        get() = activeIndexes
 
     val currentActive: Int
         get() = currentIndex.firstOrNull() ?: -1

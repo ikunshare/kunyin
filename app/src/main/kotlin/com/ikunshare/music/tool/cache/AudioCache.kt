@@ -46,6 +46,14 @@ class AudioCache(
 
     private val cacheDir = File(context.cacheDir, DIR_NAME).apply { mkdirs() }
 
+    @Volatile
+    private var activeKey: String? = null
+
+    fun setActiveKey(key: String?) {
+        activeKey = key
+        if (key != null) File(cacheDir, key).setLastModified(System.currentTimeMillis())
+    }
+
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
@@ -101,11 +109,20 @@ class AudioCache(
         return try {
             val lines = metaFile.readLines()
             if (lines.size >= 3) {
-                ChunkMeta(
+                val meta = ChunkMeta(
                     totalSize = lines[0].toLong(),
                     chunkSize = lines[1].toInt(),
                     chunkCount = lines[2].toInt()
                 )
+                val expectedCount = if (meta.totalSize > 0 && meta.chunkSize > 0) {
+                    (meta.totalSize - 1L) / meta.chunkSize + 1L
+                } else -1L
+                if (meta.chunkSize == CHUNK_SIZE && expectedCount == meta.chunkCount.toLong()) {
+                    meta
+                } else {
+                    Log.w(TAG, "AudioCache: invalid chunk metadata key=$key")
+                    null
+                }
             } else null
         } catch (e: Exception) {
             Log.e(TAG, "AudioCache: readMeta failed key=$key", e)
@@ -134,7 +151,13 @@ class AudioCache(
         val meta = readMeta(key) ?: return null
 
         for (i in 0 until meta.chunkCount) {
-            if (!File(dir, String.format("chunk_%03d", i)).exists()) {
+            val file = File(dir, String.format("chunk_%03d", i))
+            val expectedSize = if (i == meta.chunkCount - 1) {
+                meta.totalSize - i.toLong() * meta.chunkSize
+            } else {
+                meta.chunkSize.toLong()
+            }
+            if (!file.isFile || file.length() != expectedSize) {
                 dir.deleteRecursively()
                 return null
             }
@@ -238,6 +261,7 @@ class AudioCache(
         entries.sortBy { it.lastModified() }
         for (entry in entries) {
             if (totalSize <= max) break
+            if (entry.name == activeKey) continue
             val size = entrySize(entry)
             val deleted = if (entry.isDirectory) entry.deleteRecursively() else entry.delete()
             if (deleted) {

@@ -2,6 +2,8 @@ package com.ikunshare.music.ui.screens.settings
 
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -65,6 +67,15 @@ internal fun FloatingLyricsSection(
     vm: SettingsViewModel
 ) {
     val context = LocalContext.current
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        val manager = MusicApplication.instance?.floatingLyricsManager
+        if (manager?.hasOverlayPermission() == true) {
+            vm.updateSettings { copy(floatingLyricsEnabled = true) }
+            manager.refresh()
+        }
+    }
 
     // 启用开关（带权限检查）
     SettingSwitchItem(
@@ -79,8 +90,9 @@ internal fun FloatingLyricsSection(
                         AndroidSettings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         Uri.parse("package:${context.packageName}")
                     )
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(intent)
+                    runCatching { permissionLauncher.launch(intent) }.onFailure {
+                        android.util.Log.w("SettingsFloatingLyrics", "Unable to open overlay permission settings", it)
+                    }
                     return@SettingSwitchItem
                 }
             }

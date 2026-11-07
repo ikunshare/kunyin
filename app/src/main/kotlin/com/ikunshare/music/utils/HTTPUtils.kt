@@ -181,8 +181,8 @@ class HTTPUtils {
 
         private fun execute(request: Request, requestClient: OkHttpClient = client): HTTPResponse {
             if (httpLogEnabled) {
-                Log.d(TAG, "→ ${request.method} ${request.url}")
-                request.headers.forEach { (k, v) -> Log.d(TAG, "  H: $k: $v") }
+                Log.d(TAG, "→ ${request.method} ${request.url.host}")
+                request.headers.forEach { (name, _) -> Log.d(TAG, "  H: $name") }
             }
             return try {
                 requestClient.newCall(request).execute().use { response ->
@@ -198,14 +198,14 @@ class HTTPUtils {
                     }
 
                     if (httpLogEnabled) {
-                        Log.d(TAG, "← ${response.code} ${request.url}")
-                        Log.d(TAG, "  Body(${bodyString.length}): ${bodyString.take(500)}")
+                        Log.d(TAG, "← ${response.code} ${request.url.host}")
+                        Log.d(TAG, "  Body(${bodyString.length})")
                     }
 
                     HTTPResponse(response.code, bodyString, bytes, responseHeaders)
                 }
             } catch (e: IOException) {
-                if (httpLogEnabled) Log.w(TAG, "✗ ${request.method} ${request.url}: ${e.message}")
+                if (httpLogEnabled) Log.w(TAG, "✗ ${request.method} ${request.url.host}: ${e.message}")
                 HTTPResponse(0, e.message, null, emptyMap())
             }
         }

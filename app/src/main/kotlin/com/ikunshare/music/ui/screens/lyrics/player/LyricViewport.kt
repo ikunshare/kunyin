@@ -79,7 +79,27 @@ internal class LyricMotion {
     var seeded by mutableStateOf(false)
 }
 
+private class LineCenterCache(val centers: FloatArray, val lineIndices: IntArray?) {
+    fun closest(target: Float): Int {
+        if (centers.isEmpty()) return 0
+        var low = 0
+        var high = centers.size
+        while (low < high) {
+            val middle = (low + high).ushr(1)
+            if (centers[middle] < target) low = middle + 1 else high = middle
+        }
+        val nearest = when {
+            low == 0 -> 0
+            low == centers.size -> centers.lastIndex
+            target - centers[low - 1] <= centers[low] - target -> low - 1
+            else -> low
+        }
+        return lineIndices?.get(nearest) ?: nearest
+    }
+}
+
 private class ViewportHolder {
+    var centerCache by mutableStateOf(LineCenterCache(FloatArray(0), null))
     var previousLineIndex = -1
     var previousActive: List<Int> = emptyList()
     var previousOffset: Float? = null
@@ -161,7 +181,7 @@ internal fun LyricViewport(
     var viewportWidth by remember { mutableIntStateOf(0) }
     var viewportHeight by remember { mutableIntStateOf(0) }
     val drag: MutableFloatState = remember(generation) { mutableFloatStateOf(0f) }
-    var manual by remember(generation) { mutableStateOf(!isSynced) }
+    var manual by remember(generation, isSynced) { mutableStateOf(!isSynced) }
     var touchGeneration by remember(generation) { mutableIntStateOf(0) }
 
     val activeIndexes = match.indexes
@@ -170,7 +190,7 @@ internal fun LyricViewport(
     val anchor = if (isSynced) anchorFraction else 0.08f
 
     // 窗口半径：覆盖半个视口（按最小已测行高）+ 缓冲，且不小于 contentWindow / animationWindow
-    val contentRadius by remember(generation) {
+    val contentRadius by remember(generation, config) {
         derivedStateOf {
             heightsVersion
             var minNormal = Int.MAX_VALUE
@@ -181,21 +201,12 @@ internal fun LyricViewport(
         }
     }
     // 手动滚动时窗口中心跟随最接近锚点的行（只在整行变化时更新，避免逐帧重组）
-    val manualCenter by remember(generation) {
+    val manualCenter by remember(generation, anchor, occludedBottomPx) {
         derivedStateOf {
             if (!manual || lines.isEmpty()) -1
             else {
-                val d = drag.floatValue
-                var best = 0
-                var bestDist = Float.MAX_VALUE
-                val tops = holder.tops
-                for (i in lines.indices) {
-                    val top = tops.getOrElse(i) { 0f } + holder.manualBase + d
-                    val h = (heights[i] ?: FALLBACK_LINE_HEIGHT).toFloat()
-                    val dist = abs(top + h / 2f - viewportHeight * anchor)
-                    if (dist < bestDist) { bestDist = dist; best = i }
-                }
-                best
+                val visibleAnchor = (viewportHeight - occludedBottomPx).coerceAtLeast(0) * anchor
+                holder.centerCache.closest(visibleAnchor - holder.manualBase - drag.floatValue)
             }
         }
     }
@@ -236,10 +247,10 @@ internal fun LyricViewport(
     // ===== 布局计算（桌面 LayoutManager.update）=====
     val creditsVisible = credits.isNotEmpty() && lines.isNotEmpty()
     LaunchedEffect(generation, heightsVersion, viewportWidth, viewportHeight, activeIndexes, firstActive, manual,
-        attached, config, anchor, creditsVisible) {
+        attached, config, anchor, creditsVisible, fontPx, gapPx, occludedBottomPx) {
         if (lines.isEmpty() || viewportHeight <= 0) return@LaunchedEffect
         // 实时读取视口尺寸：组合期捕获的值可能早于 onSizeChanged
-        val activePosition = viewportHeight * anchor
+        val activePosition = (viewportHeight - occludedBottomPx).coerceAtLeast(0) * anchor
         val n = lines.size
         var lastNormal = -1
         var lastInterlude = -1
@@ -258,6 +269,20 @@ internal fun LyricViewport(
             tops[i] = if (lines[i].isInterlude && hideInterlude && !manual && i !in activeSet) base - h[i] else base + gapPx
         }
         holder.tops = tops
+        val centers = FloatArray(n) { i -> tops[i] + h[i] / 2f }
+        var ordered = true
+        for (i in 1 until n) {
+            if (centers[i] < centers[i - 1]) {
+                ordered = false
+                break
+            }
+        }
+        val lineOrder = if (ordered) null else {
+            val order = Array(n) { it }
+            order.sortBy { centers[it] }
+            IntArray(n) { order[it] }
+        }
+        holder.centerCache = LineCenterCache(centers, lineOrder)
         val fa = firstActive.coerceIn(0, n - 1)
         val autoOffset = activePosition - (tops[fa] + h[fa] / 2f)
         val d = round(drag.floatValue)

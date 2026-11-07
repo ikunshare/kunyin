@@ -92,6 +92,10 @@ data class LyricLine(
     val backgrounds: List<LyricBackground> = emptyList(),
     val type: LyricLineType = LyricLineType.NORMAL
 ) {
+    /** 行动画起点：逐字歌词的首字可能早于行时间戳。 */
+    val animationStart: Long
+        get() = minOf(timestamp, characters?.firstOrNull()?.startTime ?: timestamp)
+
     /**
      * 是否有逐字歌词
      */
@@ -199,14 +203,10 @@ data class ParsedLyric(
             }
         }
 
-        // 逐字歌词的首字符 startTime 可能早于行 timestamp，
-        // 当播放位置已到达下一行首字符时提前切换
+        // 到达下一行动画起点时提前切换，覆盖首字早于行时间戳的情况
         val nextIndex = result + 1
-        if (nextIndex in lines.indices) {
-            val nextCharStart = lines[nextIndex].characters?.firstOrNull()?.startTime
-            if (nextCharStart != null && position >= nextCharStart) {
-                return nextIndex
-            }
+        if (nextIndex in lines.indices && position >= lines[nextIndex].animationStart) {
+            return nextIndex
         }
 
         return result

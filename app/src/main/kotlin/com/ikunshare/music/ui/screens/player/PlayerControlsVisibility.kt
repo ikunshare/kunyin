@@ -4,6 +4,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.lifecycle.Lifecycle
@@ -91,7 +92,9 @@ internal fun Modifier.playerControlsGestures(
                 if (gestureActive) {
                     if (event.changes.size > 1 || event.changes.any { (it.position - origin).getDistance() > slop }) moved = true
                     if (!pressed) {
-                        val tapUnhandled = !moved && event.changes.none { it.changedToUpIgnoreConsumed() && it.isConsumed }
+                        val hasRealUp = event.changes.any { it.changedToUp() }
+                        val tapUnhandled = hasRealUp && !moved &&
+                            event.changes.none { it.changedToUpIgnoreConsumed() && it.isConsumed }
                         if (autoHideEnabled && !controls.visible && tapUnhandled) controls.show()
                         gestureActive = false
                         controls.releaseTouch()

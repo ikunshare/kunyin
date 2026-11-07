@@ -1,5 +1,6 @@
 package com.ikunshare.music.ui.components
 
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +13,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.CircularProgressIndicator
@@ -69,11 +72,19 @@ fun MvDialog(
             Toast.makeText(context, R.string.mv_no_quality, Toast.LENGTH_SHORT).show()
             onDismiss(); return@LaunchedEffect
         }
-        val list = withContext(Dispatchers.IO) { provider.getMvQualities(song) }
-        loading = false
-        qualities = list
-        if (list.isEmpty()) {
-            Toast.makeText(context, R.string.mv_no_quality, Toast.LENGTH_SHORT).show()
+        try {
+            val list = withContext(Dispatchers.IO) { provider.getMvQualities(song) }
+            loading = false
+            qualities = list
+            if (list.isEmpty()) {
+                Toast.makeText(context, R.string.mv_no_quality, Toast.LENGTH_SHORT).show()
+                onDismiss()
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            Log.w("MvDialog", "Failed to load MV qualities", e)
+            Toast.makeText(context, R.string.unknown_error, Toast.LENGTH_SHORT).show()
             onDismiss()
         }
     }
@@ -100,7 +111,10 @@ fun MvDialog(
                         }
                     }
                 } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         for (q in qualities) {
                             MvQualityRow(
                                 quality = q,
@@ -111,28 +125,38 @@ fun MvDialog(
                                         ?: return@MvQualityRow
                                     resolvingFor = q.quality
                                     scope.launch {
-                                        val result = withContext(Dispatchers.IO) {
-                                            provider.getMvUrl(song, q.quality)
-                                        }
-                                        resolvingFor = null
-                                        if (!result.playUrl.isNullOrBlank()) {
-                                            MvPlayerActivity.launch(
-                                                context = context,
-                                                url = result.playUrl,
-                                                title = song.title,
-                                                song = song,
-                                                sourceTag = sourceTag,
-                                                qualities = qualities,
-                                                currentQuality = q.quality
-                                            )
-                                            onDismiss()
-                                        } else {
+                                        try {
+                                            val result = withContext(Dispatchers.IO) {
+                                                provider.getMvUrl(song, q.quality)
+                                            }
+                                            if (!result.playUrl.isNullOrBlank()) {
+                                                MvPlayerActivity.launch(
+                                                    context = context,
+                                                    url = result.playUrl,
+                                                    title = song.title,
+                                                    song = song,
+                                                    sourceTag = sourceTag,
+                                                    qualities = qualities,
+                                                    currentQuality = q.quality
+                                                )
+                                                onDismiss()
+                                            } else {
+                                                Toast.makeText(
+                                                    context,
+                                                    result.rejectReason
+                                                        ?: context.getString(R.string.mv_play_failed),
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                            throw cancelled
+                                        } catch (e: Exception) {
+                                            Log.w("MvDialog", "Failed to resolve MV URL", e)
                                             Toast.makeText(
-                                                context,
-                                                result.rejectReason
-                                                    ?: context.getString(R.string.mv_play_failed),
-                                                Toast.LENGTH_SHORT
+                                                context, R.string.mv_play_failed, Toast.LENGTH_SHORT
                                             ).show()
+                                        } finally {
+                                            resolvingFor = null
                                         }
                                     }
                                 },

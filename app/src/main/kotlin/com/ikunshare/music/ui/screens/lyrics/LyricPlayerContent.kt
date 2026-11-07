@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -71,6 +72,7 @@ internal fun WebLyricsContent(
     val drive = visible && isPlaying && isSynced
     val positionState = remember(lyrics) { mutableLongStateOf(currentPosition) }
     val wallState = remember { mutableLongStateOf(System.nanoTime() / 1_000_000L) }
+    val runningState = remember { mutableStateOf(drive) }
     val clock = remember(lyrics) { LyricPlaybackClock(currentPosition, System.nanoTime()) }
     val matchState = remember(player) { mutableStateOf(player.matchLinesWithTime(currentPosition)) }
     // 激活集合只在行边界变化：记下下一个边界，边界之前跳过匹配（逐帧调用不再分配列表）
@@ -84,20 +86,32 @@ internal fun WebLyricsContent(
         }
         matchWindow[0] = position
     }
-    LaunchedEffect(currentPosition, drive, playbackRate, clock) {
-        publish(clock.accept(currentPosition, System.nanoTime(), running = drive))
+    val frameClock = remember(positionState, wallState, runningState) {
+        LyricFrameClock(positionState, wallState, runningState)
     }
-    LaunchedEffect(drive, playbackRate, clock) {
-        // 墙钟在不播放时也以低频推进，供退场动画（float 回落 / 重音收尾）在暂停瞬间收完
+    LaunchedEffect(currentPosition, drive, playbackRate, clock) {
+        runningState.value = drive
+        val now = System.nanoTime()
+        wallState.longValue = now / 1_000_000L
+        publish(clock.accept(currentPosition, now, running = drive))
+    }
+    LaunchedEffect(visible, drive, playbackRate, clock, isSynced) {
+        if (!visible || !drive) return@LaunchedEffect
         while (true) {
             withFrameNanos { nanos ->
                 wallState.longValue = nanos / 1_000_000L
-                if (drive) publish(clock.frame(nanos, playbackRate))
+                publish(clock.frame(nanos, playbackRate))
             }
-            if (!drive) kotlinx.coroutines.delay(48)
         }
     }
-    val frameClock = remember(positionState, wallState) { LyricFrameClock(positionState, wallState) }
+    LaunchedEffect(visible, drive, frameClock, isSynced) {
+        if (!visible || drive || !isSynced) return@LaunchedEffect
+        snapshotFlow { frameClock.windDownUntilMs.longValue }.collect { deadline ->
+            while (wallState.longValue < deadline && frameClock.windDownUntilMs.longValue == deadline) {
+                withFrameNanos { nanos -> wallState.longValue = nanos / 1_000_000L }
+            }
+        }
+    }
     val match: LyricPlayerMatch = matchState.value
 
     LyricViewport(
@@ -113,7 +127,10 @@ internal fun WebLyricsContent(
         showPhonetic = showPhonetic,
         hasCharLyrics = hasCharLyrics,
         credits = credits,
-        onLineClick = onLineClick,
+        onLineClick = { position ->
+            publish(clock.seekTo(position, System.nanoTime(), running = drive))
+            onLineClick(position)
+        },
         anchorFraction = anchorFraction,
         horizontalPadding = horizontalPadding,
         occludedBottomPx = occludedBottomPx,

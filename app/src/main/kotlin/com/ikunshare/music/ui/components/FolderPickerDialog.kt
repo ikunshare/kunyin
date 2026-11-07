@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -25,8 +26,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -36,6 +37,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ikunshare.music.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 @Composable
@@ -53,14 +56,15 @@ fun FolderPickerDialog(
         )
     }
 
-    val folders by remember(currentDir) {
-        derivedStateOf {
+    val folderResults by produceState<List<File>?>(null, currentDir) {
+        value = withContext(Dispatchers.IO) {
             currentDir.listFiles()
                 ?.filter { it.isDirectory && !it.name.startsWith(".") }
                 ?.sortedBy { it.name.lowercase() }
-                ?: emptyList()
+                .orEmpty()
         }
     }
+    val folders = folderResults.orEmpty()
 
     val canGoUp = currentDir.absolutePath != "/" && currentDir.absolutePath != rootPath
 
@@ -123,6 +127,10 @@ fun FolderPickerDialog(
                             "无法读取此目录",
                             color = MaterialTheme.colorScheme.error
                         )
+                    }
+                } else if (folderResults == null) {
+                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
                     }
                 } else if (folders.isEmpty()) {
                     Box(

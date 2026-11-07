@@ -7,7 +7,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -212,7 +213,7 @@ fun GlassDialogPanel(
  * Drop-in replacement for Material 3 `AlertDialog` with the same slots and layout metrics,
  * drawn on Liquid Glass. `containerColor` becomes the glass tint.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun GlassAlertDialog(
     onDismissRequest: () -> Unit,
@@ -266,7 +267,10 @@ fun GlassAlertDialog(
                     }
                 }
             }
-            Row(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+            ) {
                 ProvideTextStyle(MaterialTheme.typography.labelLarge) {
                     dismissButton?.invoke()
                     confirmButton()

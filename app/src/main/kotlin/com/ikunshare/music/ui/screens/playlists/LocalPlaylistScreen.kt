@@ -1,5 +1,6 @@
 package com.ikunshare.music.ui.screens.playlists
 
+import android.util.Log
 import com.ikunshare.music.ui.screens.player.LocalPlayerSheet
 import android.widget.Toast
 import androidx.compose.foundation.layout.Box
@@ -97,6 +98,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -1162,7 +1164,6 @@ class LocalPlaylistViewModel(
     private val _totalCount = MutableStateFlow(0)
     val totalCount: StateFlow<Int> = _totalCount.asStateFlow()
 
-    private var currentOffset = 0
     private var currentPlaylistId: Long? = null
     private var loadJob: kotlinx.coroutines.Job? = null
     private var watchJob: kotlinx.coroutines.Job? = null
@@ -1174,7 +1175,6 @@ class LocalPlaylistViewModel(
     fun initLoad(@Suppress("UNUSED_PARAMETER") type: String, playlistId: Long? = null) {
         if (playlistId == currentPlaylistId && _displaySongs.value.isNotEmpty()) return
         currentPlaylistId = playlistId
-        currentOffset = 0
         _displaySongs.value = emptyList()
         _hasMore.value = true
         _isInitialLoad.value = true
@@ -1182,12 +1182,13 @@ class LocalPlaylistViewModel(
         watchRevision(playlistId)
     }
 
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
     private fun watchRevision(playlistId: Long?) {
         watchJob?.cancel()
         if (playlistId == null) return
         watchJob = viewModelScope.launch(Dispatchers.Main) {
             var lastRev = localMusicStore.playlistSongsRevision.value[playlistId] ?: 0L
-            localMusicStore.playlistSongsRevision.collect { map ->
+            localMusicStore.playlistSongsRevision.debounce(200L).collect { map ->
                 val rev = map[playlistId] ?: 0L
                 if (rev != lastRev) {
                     lastRev = rev
@@ -1201,23 +1202,28 @@ class LocalPlaylistViewModel(
         loadJob?.cancel()
         val playlistId = currentPlaylistId ?: return
         loadJob = viewModelScope.launch(Dispatchers.IO) {
-            var offset = 0
-            val items = mutableListOf<MusicItem>()
-            do {
-                val page = localMusicStore.queryPlaylistSongsPaged(playlistId, PAGE_SIZE, offset)
+            try {
+                var offset = 0
+                val items = mutableListOf<MusicItem>()
+                do {
+                    val page = localMusicStore.queryPlaylistSongsPaged(playlistId, PAGE_SIZE, offset)
+                    coroutineContext.ensureActive()
+                    offset += page.size
+                    items.addAll(page)
+                    withContext(Dispatchers.Main) {
+                        _displaySongs.value = items.toList()
+                        _isInitialLoad.value = false
+                        _hasMore.value = page.size == PAGE_SIZE
+                        _isLoading.value = _hasMore.value
+                        _totalCount.value = if (_hasMore.value) localMusicStore.playlistsFlow.value
+                            .find { it.id == playlistId }?.songCount ?: items.size else items.size
+                    }
+                } while (page.size == PAGE_SIZE)
+            } catch (e: Exception) {
                 coroutineContext.ensureActive()
-                offset += page.size
-                items.addAll(page)
-                withContext(Dispatchers.Main) {
-                    currentOffset = offset
-                    _displaySongs.value = items.toList()
-                    _isInitialLoad.value = false
-                    _hasMore.value = page.size == PAGE_SIZE
-                    _isLoading.value = _hasMore.value
-                    _totalCount.value = if (_hasMore.value) localMusicStore.playlistsFlow.value
-                        .find { it.id == playlistId }?.songCount ?: items.size else items.size
-                }
-            } while (page.size == PAGE_SIZE)
+                Log.e("LocalPlaylist", "Failed to load playlist songs", e)
+                handleLoadFailure(playlistId)
+            }
         }
     }
 
@@ -1225,16 +1231,30 @@ class LocalPlaylistViewModel(
         val playlistId = currentPlaylistId ?: return
         loadJob?.cancel()
         loadJob = viewModelScope.launch(Dispatchers.IO) {
-            val songs = localMusicStore.queryPlaylistSongs(playlistId)
-            withContext(Dispatchers.Main) {
-                if (currentPlaylistId != playlistId) return@withContext
-                currentOffset = songs.size
-                _displaySongs.value = songs
-                _totalCount.value = songs.size
-                _hasMore.value = false
-                _isLoading.value = false
-                _isInitialLoad.value = false
+            try {
+                val songs = localMusicStore.queryPlaylistSongs(playlistId)
+                withContext(Dispatchers.Main) {
+                    if (currentPlaylistId != playlistId) return@withContext
+                    _displaySongs.value = songs
+                    _totalCount.value = songs.size
+                    _hasMore.value = false
+                    _isLoading.value = false
+                    _isInitialLoad.value = false
+                }
+            } catch (e: Exception) {
+                coroutineContext.ensureActive()
+                Log.e("LocalPlaylist", "Failed to refresh playlist songs", e)
+                handleLoadFailure(playlistId)
             }
+        }
+    }
+
+    private suspend fun handleLoadFailure(playlistId: Long) {
+        withContext(Dispatchers.Main) {
+            if (currentPlaylistId != playlistId) return@withContext
+            _isLoading.value = false
+            _isInitialLoad.value = false
+            _hasMore.value = false
         }
     }
 
@@ -1250,8 +1270,8 @@ class LocalPlaylistViewModel(
         }
     }
 
-    fun getPlaylistName(playlistId: Long): String? {
-        return localMusicStore.getPlaylistName(playlistId)
+    suspend fun getPlaylistName(playlistId: Long): String? = withContext(Dispatchers.IO) {
+        localMusicStore.getPlaylistName(playlistId)
     }
 
     fun getPlaylist(playlistId: Long): com.ikunshare.music.database.Playlist? {
@@ -1260,19 +1280,39 @@ class LocalPlaylistViewModel(
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+    private var remoteRefreshJob: kotlinx.coroutines.Job? = null
+    private var remoteRefreshGeneration = 0L
+    private var remoteRefreshPlaylistId: Long? = null
 
     /**
      * 从远端完整刷新收藏的在线歌单；获取失败时保留本地内容。
      */
     fun refreshFromRemote(playlistId: Long) {
-        if (_isRefreshing.value) return
-        val repo = repository ?: return
-        val playlist = localMusicStore.getPlaylist(playlistId) ?: return
-        val remoteSource = playlist.remoteSource ?: return
-        val remoteId = playlist.remoteId ?: return
+        if (_isRefreshing.value && remoteRefreshPlaylistId == playlistId) return
+        remoteRefreshJob?.cancel()
+        val generation = ++remoteRefreshGeneration
+        remoteRefreshPlaylistId = playlistId
+        _isRefreshing.value = false
+
+        val repo = repository ?: run {
+            remoteRefreshPlaylistId = null
+            return
+        }
+        val playlist = localMusicStore.getPlaylist(playlistId) ?: run {
+            remoteRefreshPlaylistId = null
+            return
+        }
+        val remoteSource = playlist.remoteSource ?: run {
+            remoteRefreshPlaylistId = null
+            return
+        }
+        val remoteId = playlist.remoteId ?: run {
+            remoteRefreshPlaylistId = null
+            return
+        }
 
         _isRefreshing.value = true
-        viewModelScope.launch(Dispatchers.IO) {
+        remoteRefreshJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 // 获取远端全部歌曲
                 val allRemoteSongs = repo.getCompletePlaylistSongsForSource(remoteSource, remoteId)
@@ -1287,7 +1327,11 @@ class LocalPlaylistViewModel(
                     }
                 }
             } finally {
-                _isRefreshing.value = false
+                if (generation == remoteRefreshGeneration) {
+                    remoteRefreshJob = null
+                    remoteRefreshPlaylistId = null
+                    _isRefreshing.value = false
+                }
             }
         }
     }

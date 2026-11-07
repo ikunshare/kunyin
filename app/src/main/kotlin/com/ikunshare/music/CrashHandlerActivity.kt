@@ -129,9 +129,14 @@ class CrashHandlerActivity : ComponentActivity() {
     }
 
     private fun copyCrashLog() {
-        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Crash Log", crashLog))
-        Toast.makeText(this, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
+        try {
+            val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("Crash Log", crashLog))
+            Toast.makeText(this, R.string.crash_log_copied, Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            android.util.Log.e("CrashHandler", "Unable to copy crash log", e)
+            Toast.makeText(this, R.string.song_info_copy_failed, Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun shareCrashLog() {
@@ -140,18 +145,30 @@ class CrashHandlerActivity : ComponentActivity() {
             putExtra(Intent.EXTRA_SUBJECT, "Kunyin Crash Log")
             putExtra(Intent.EXTRA_TEXT, crashLog)
         }
-        startActivity(Intent.createChooser(intent, "分享崩溃日志"))
+        try {
+            startActivity(Intent.createChooser(intent, getString(R.string.share_crash_log)))
+        } catch (e: Exception) {
+            android.util.Log.e("CrashHandler", "Unable to share crash log", e)
+            Toast.makeText(this, R.string.share_failed, Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun restartApp() {
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
-        if (launchIntent != null) {
-            startActivity(launchIntent)
+        if (launchIntent == null) {
+            Toast.makeText(this, R.string.restart_failed, Toast.LENGTH_SHORT).show()
+            return
         }
-        finishAffinity()
-        Process.killProcess(Process.myPid())
+        try {
+            startActivity(launchIntent)
+            finishAffinity()
+            Process.killProcess(Process.myPid())
+        } catch (e: Exception) {
+            android.util.Log.e("CrashHandler", "Unable to restart app", e)
+            Toast.makeText(this, R.string.restart_failed, Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun exitApp() {
@@ -218,94 +235,101 @@ private fun CrashScreen(
                     .padding(padding)
                     .padding(horizontal = 20.dp, vertical = 16.dp)
             ) {
-                // ── 标题区 ──
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "APP 发生崩溃",
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.Bold
-                    ),
-                    color = MaterialTheme.colorScheme.error
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = summary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 3
-                )
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // ── 按钮区 ──
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
                 ) {
-                    CrashButton(
-                        text = "复制日志",
-                        icon = {
-                            Icon(
-                                Icons.Default.ContentCopy,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        onClick = onCopy,
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    // ── 标题区 ──
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "APP 发生崩溃",
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = MaterialTheme.colorScheme.error
                     )
-                    CrashButton(
-                        text = "分享日志",
-                        icon = {
-                            Icon(
-                                Icons.Default.Share,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        onClick = onShare,
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = summary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 3
                     )
-                    CrashButton(
-                        text = "重启 APP",
-                        icon = {
-                            Icon(
-                                Icons.Default.Refresh,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        onClick = onRestart,
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    CrashButton(
-                        text = "退出 APP",
-                        icon = {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ExitToApp,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        onClick = onExit,
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // ── 按钮区 ──
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CrashButton(
+                            text = "复制日志",
+                            icon = {
+                                Icon(
+                                    Icons.Default.ContentCopy,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            onClick = onCopy,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        CrashButton(
+                            text = "分享日志",
+                            icon = {
+                                Icon(
+                                    Icons.Default.Share,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            onClick = onShare,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        CrashButton(
+                            text = "重启 APP",
+                            icon = {
+                                Icon(
+                                    Icons.Default.Refresh,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            onClick = onRestart,
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        CrashButton(
+                            text = "退出 APP",
+                            icon = {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ExitToApp,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            onClick = onExit,
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // ── 崩溃日志区 ──
+                    Text(
+                        text = "崩溃日志",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Bold
                     )
                 }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // ── 崩溃日志区 ──
-                Text(
-                    text = "崩溃日志",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Bold
-                )
                 Spacer(modifier = Modifier.height(8.dp))
                 SelectionContainer {
                     Column(

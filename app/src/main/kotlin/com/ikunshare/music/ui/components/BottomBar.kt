@@ -12,10 +12,15 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.graphics.TransformOrigin
 import com.ikunshare.music.ui.theme.Motion
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Download
@@ -37,19 +42,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavController
 import com.ikunshare.music.R
 import com.ikunshare.music.ui.screens.player.PlayerViewModel
 import com.ikunshare.music.ui.theme.LocalUiColors
 import com.kyant.backdrop.backdrops.LayerBackdrop
-
-/**
- * 独立容器组件，用于渲染超出范围的内容
- */
-@Composable
-fun Block(content: @Composable () -> Unit) {
-    content()
-}
 
 /**
  * 底部导航栏项定义
@@ -72,7 +68,6 @@ val bottomNavItems = listOf(
 
 @Composable
 fun LiquidGlassBottomBar(
-    navController: NavController,
     isOnTabs: Boolean,
     showMiniPlayer: Boolean,
     playerViewModel: PlayerViewModel,
@@ -84,6 +79,7 @@ fun LiquidGlassBottomBar(
     isCompactMode: Boolean = false,
     backdrop: LayerBackdrop,
     isWideScreen: Boolean = false,
+    hasSideNav: Boolean = isWideScreen,
     enableBlur: Boolean = true
 ) {
     val playerSheet = LocalPlayerSheet.current
@@ -95,7 +91,7 @@ fun LiquidGlassBottomBar(
 
     val currentTab = bottomNavItems.getOrNull(selectedTabIndex)
 
-    Column {
+    Column(Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))) {
         // MiniPlayer
         AnimatedVisibility(
             visible = showMiniPlayer,
@@ -105,19 +101,16 @@ fun LiquidGlassBottomBar(
                 fadeOut(Motion.fadeOut()) + scaleOut(Motion.smooth(), targetScale = 0.92f)
         ) {
             // One glass surface that morphs between modes; a crossfade would draw two.
-            val compactModeEnabled = !isWideScreen && isCompactMode && isOnTabs && currentTab != null
+            val compactTab = currentTab?.takeIf { !isWideScreen && isCompactMode && isOnTabs }
+            val compactModeEnabled = compactTab != null
             LiquidGlassMiniPlayer(
                 song = playerState.currentSong,
                 isPlaying = playerState.isPlaying,
                 isLoading = playerState.isLoading,
                 progress = progress,
                 currentLyricText = playerState.currentLyricText,
-                compactIcon = if (compactModeEnabled) currentTab?.icon else null,
-                compactLabel = if (compactModeEnabled) currentTab?.labelRes?.let {
-                    stringResource(
-                        it
-                    )
-                } else null,
+                compactIcon = compactTab?.icon,
+                compactLabel = compactTab?.labelRes?.let { stringResource(it) },
                 onPlayPause = playerViewModel::togglePlayPause,
                 onPrevious = playerViewModel::previous,
                 onNext = playerViewModel::next,
@@ -130,7 +123,7 @@ fun LiquidGlassBottomBar(
                 barColor = barColor,
                 backdrop = backdrop,
                 compactMode = compactModeEnabled,
-                isWideScreen = isWideScreen,
+                isWideScreen = hasSideNav,
                 enableBlur = enableBlur
             )
         }
@@ -179,42 +172,40 @@ private fun LiquidGlassBottomNavBar(
         currentSelectedIndex = selectedIndex
     }
 
-    Block {
-        LiquidBottomTabs(
-            selectedTabIndex = { currentSelectedIndex },
-            onTabSelected = { index ->
-                currentSelectedIndex = index
-                onTabClick(index)
-            },
-            backdrop = backdrop,
-            tabsCount = bottomNavItems.size,
-            accentColor = accentColor,
-            containerColor = containerColor,
-            enableBlur = enableBlur,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 36.dp)
-                .padding(bottom = 12.dp)
-        ) {
-            bottomNavItems.forEachIndexed { index, item ->
-                LiquidBottomTab(
-                    onClick = { onTabClick(index) }
-                ) {
-                    Icon(
-                        imageVector = item.icon,
-                        contentDescription = stringResource(item.labelRes),
-                        tint = if (currentSelectedIndex == index) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .size(28f.dp)
-                            .padding(top = 4f.dp)
-                    )
-                    Text(
-                        text = stringResource(item.labelRes),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (currentSelectedIndex == index) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 2f.dp)
-                    )
-                }
+    LiquidBottomTabs(
+        selectedTabIndex = { currentSelectedIndex },
+        onTabSelected = { index ->
+            currentSelectedIndex = index
+            onTabClick(index)
+        },
+        backdrop = backdrop,
+        tabsCount = bottomNavItems.size,
+        accentColor = accentColor,
+        containerColor = containerColor,
+        enableBlur = enableBlur,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 36.dp)
+            .padding(bottom = 12.dp)
+    ) {
+        bottomNavItems.forEachIndexed { index, item ->
+            LiquidBottomTab(
+                onClick = { onTabClick(index) }
+            ) {
+                Icon(
+                    imageVector = item.icon,
+                    contentDescription = stringResource(item.labelRes),
+                    tint = if (currentSelectedIndex == index) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .size(28f.dp)
+                        .padding(top = 4f.dp)
+                )
+                Text(
+                    text = stringResource(item.labelRes),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (currentSelectedIndex == index) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 2f.dp)
+                )
             }
         }
     }
@@ -243,34 +234,32 @@ fun LiquidGlassSideNavBar(
         currentSelectedIndex = selectedIndex
     }
 
-    Block {
-        LiquidSideTabs(
-            selectedTabIndex = { currentSelectedIndex },
-            onTabSelected = { index ->
-                currentSelectedIndex = index
-                onTabClick(index)
-            },
-            backdrop = backdrop,
-            tabsCount = bottomNavItems.size,
-            accentColor = accentColor,
-            containerColor = containerColor,
-            enableBlur = enableBlur,
-            modifier = modifier
-                .fillMaxHeight()
-                .padding(vertical = 36.dp)
-                .padding(start = 12.dp)
-        ) {
-            bottomNavItems.forEachIndexed { index, item ->
-                LiquidSideTab(
-                    onClick = { onTabClick(index) }
-                ) {
-                    Icon(
-                        imageVector = item.icon,
-                        contentDescription = stringResource(item.labelRes),
-                        tint = if (currentSelectedIndex == index) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
+    LiquidSideTabs(
+        selectedTabIndex = { currentSelectedIndex },
+        onTabSelected = { index ->
+            currentSelectedIndex = index
+            onTabClick(index)
+        },
+        backdrop = backdrop,
+        tabsCount = bottomNavItems.size,
+        accentColor = accentColor,
+        containerColor = containerColor,
+        enableBlur = enableBlur,
+        modifier = modifier
+            .fillMaxHeight()
+            .padding(vertical = 36.dp)
+            .padding(start = 12.dp)
+    ) {
+        bottomNavItems.forEachIndexed { index, item ->
+            LiquidSideTab(
+                onClick = { onTabClick(index) }
+            ) {
+                Icon(
+                    imageVector = item.icon,
+                    contentDescription = stringResource(item.labelRes),
+                    tint = if (currentSelectedIndex == index) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(28.dp)
+                )
             }
         }
     }

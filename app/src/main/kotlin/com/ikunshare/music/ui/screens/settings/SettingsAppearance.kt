@@ -3,6 +3,7 @@ package com.ikunshare.music.ui.screens.settings
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,7 +54,11 @@ import com.ikunshare.music.R
 import com.ikunshare.music.MusicApplication
 import com.ikunshare.music.ui.theme.CustomThemeColors
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 internal val themeModeBuiltinOptions = listOf(
@@ -408,22 +414,23 @@ internal fun AppearanceSection(
                             val newId = appSettingsManager.addCustomTheme(name, parsed.colorsJson)
                             // 下载背景图
                             if (parsed.bgUrl.isNotBlank()) {
+                                var dest: File? = null
                                 try {
                                     val resp = com.ikunshare.music.utils.HTTPUtils.get(parsed.bgUrl)
                                     resp.bodyBytes?.let { bytes ->
-                                        val ext = parsed.bgExt.ifBlank { "jpg" }
-                                        val dest = File(
-                                            context.filesDir,
-                                            "custom_bg_${System.currentTimeMillis()}.$ext"
-                                        )
-                                        dest.writeBytes(bytes)
+                                        val ext = parsed.bgExt.lowercase()
+                                            .filter { it.isLetterOrDigit() }
+                                            .take(5)
+                                            .ifBlank { "jpg" }
+                                        val file = File.createTempFile("custom_bg_", ".$ext", context.filesDir)
+                                        dest = file
+                                        file.writeBytes(bytes)
                                         appSettingsManager.updateCustomTheme(newId) {
-                                            copy(
-                                                bgImagePath = dest.absolutePath
-                                            )
+                                            copy(bgImagePath = file.absolutePath)
                                         }
                                     }
-                                } catch (_: Exception) { /* skip bg */
+                                } catch (_: Exception) {
+                                    dest?.delete()
                                 }
                             }
                             launch(Dispatchers.Main) {
@@ -597,27 +604,61 @@ internal fun TextInputDialog(
 }
 
 @Composable
+private fun rememberBackgroundImagePicker(
+    onImported: (String) -> Unit
+): ActivityResultLauncher<String> {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val currentOnImported by rememberUpdatedState(onImported)
+    var importJob by remember { mutableStateOf<Job?>(null) }
+    return rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null) {
+            importJob?.cancel()
+            importJob = scope.launch {
+                var destFile: File? = null
+                try {
+                    val path = withContext(Dispatchers.IO) {
+                        val file = File.createTempFile("custom_bg_", ".jpg", context.filesDir)
+                        destFile = file
+                        try {
+                            val input = context.contentResolver.openInputStream(uri)
+                                ?: error("Unable to read selected image")
+                            input.use { source ->
+                                file.outputStream().use { output ->
+                                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                                    while (true) {
+                                        currentCoroutineContext().ensureActive()
+                                        val count = source.read(buffer)
+                                        if (count < 0) break
+                                        output.write(buffer, 0, count)
+                                    }
+                                }
+                            }
+                            file.absolutePath
+                        } catch (_: Exception) {
+                            file.delete()
+                            null
+                        }
+                    }
+                    if (path != null) currentOnImported(path)
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    destFile?.delete()
+                    throw cancelled
+                } catch (_: Exception) {
+                    destFile?.delete()
+                }
+            }
+        }
+    }
+}
+
+@Composable
 internal fun CustomThemeBgDialog(
     bgImagePath: String,
     onBgChanged: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val context = LocalContext.current
-    val imagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            try {
-                val destFile =
-                    File(context.filesDir, "custom_bg_${System.currentTimeMillis()}.jpg")
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    destFile.outputStream().use { output -> input.copyTo(output) }
-                }
-                onBgChanged(destFile.absolutePath)
-            } catch (_: Exception) {
-            }
-        }
-    }
+    val imagePicker = rememberBackgroundImagePicker(onBgChanged)
 
     GlassDialog(onDismissRequest = onDismiss) {
         Box(
@@ -667,13 +708,7 @@ internal fun CustomThemeBgDialog(
                         Text(stringResource(R.string.select_image))
                     }
                     if (bgImagePath.isNotEmpty()) {
-                        OutlinedButton(onClick = {
-                            try {
-                                File(bgImagePath).delete()
-                            } catch (_: Exception) {
-                            }
-                            onBgChanged("")
-                        }, modifier = Modifier.weight(1f)) {
+                        OutlinedButton(onClick = { onBgChanged("") }, modifier = Modifier.weight(1f)) {
                             Text(stringResource(R.string.clear_image))
                         }
                     }
@@ -727,24 +762,10 @@ internal fun BgSettingsDialog(
     vm: SettingsViewModel,
     onDismiss: () -> Unit
 ) {
-    val context = LocalContext.current
-    val imagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            // 复制图片到内部存储
-            try {
-                val destFile = File(context.filesDir, "custom_bg.jpg")
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    destFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                }
-                vm.updateSettings { copy(bgImagePath = destFile.absolutePath) }
-            } catch (_: Exception) {
-                // 复制失败，忽略
-            }
-        }
+    val imagePicker = rememberBackgroundImagePicker { path ->
+        val previousPath = vm.appSettings.value.bgImagePath
+        vm.updateSettings { copy(bgImagePath = path) }
+        MusicApplication.instance?.appSettingsManager?.releaseCustomBackground(previousPath)
     }
 
     GlassDialog(onDismissRequest = onDismiss) {
@@ -800,16 +821,14 @@ internal fun BgSettingsDialog(
                     if (settings.bgImagePath.isNotEmpty()) {
                         OutlinedButton(
                             onClick = {
-                                try {
-                                    File(settings.bgImagePath).delete()
-                                } catch (_: Exception) {
-                                }
                                 vm.updateSettings {
                                     copy(
                                         bgImagePath = "",
                                         bgImageOnPlayer = false
                                     )
                                 }
+                                MusicApplication.instance?.appSettingsManager
+                                    ?.releaseCustomBackground(settings.bgImagePath)
                             },
                             modifier = Modifier.weight(1f)
                         ) {

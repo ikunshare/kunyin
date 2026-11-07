@@ -14,6 +14,7 @@ import com.ikunshare.music.tool.LyricParser
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
@@ -74,15 +75,22 @@ class LyricsViewModel(
     private val appSettingsManager: AppSettingsManager
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(
-        LyricsUiState(
-            showTranslation = appSettingsManager.settings.value.showTranslation &&
-                    !appSettingsManager.settings.value.showRomanization,
-            showRomanization = appSettingsManager.settings.value.showRomanization,
-            showPhonetic = appSettingsManager.settings.value.showPhonetic
-        )
-    )
+    private val _uiState = MutableStateFlow(LyricsUiState())
     val uiState: StateFlow<LyricsUiState> = _uiState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            appSettingsManager.settings.collect { settings ->
+                _uiState.update { state ->
+                    state.copy(
+                        showTranslation = settings.showTranslation && state.hasTranslation,
+                        showRomanization = settings.showRomanization && state.hasRomanization,
+                        showPhonetic = settings.showPhonetic && state.hasPhonetic
+                    )
+                }
+            }
+        }
+    }
 
     /** 当前已加载歌词的歌曲 ID，用于避免重复加载 */
     private var currentSongKey: String? = null
@@ -130,7 +138,8 @@ class LyricsViewModel(
                 hasTranslation = false,
                 hasRomanization = false,
                 hasPhonetic = false,
-                hasCharLyrics = false
+                hasCharLyrics = false,
+                isSynced = true
             )
         }
 
@@ -153,7 +162,9 @@ class LyricsViewModel(
                             credits = parsedLyric.credits,
                             hasTranslation = false,
                             hasRomanization = false,
+                            hasPhonetic = false,
                             hasCharLyrics = false,
+                            isSynced = parsedLyric.isSynced,
                             isLoading = false,
                             error = null
                         )
@@ -217,16 +228,9 @@ class LyricsViewModel(
      * **Validates: Requirements 4.4, 4.5**
      */
     fun toggleTranslation() {
-        val currentState = _uiState.value
-        if (!currentState.hasTranslation) return
-
-        val newValue = !currentState.showTranslation
-        appSettingsManager.update {
-            copy(showTranslation = newValue)
-        }
-        _uiState.update {
-            it.copy(showTranslation = newValue)
-        }
+        if (!_uiState.value.hasTranslation) return
+        val newValue = !appSettingsManager.settings.value.showTranslation
+        appSettingsManager.update { copy(showTranslation = newValue) }
     }
 
     /**
@@ -238,25 +242,15 @@ class LyricsViewModel(
      * **Validates: Requirements 4.10**
      */
     fun toggleRomanization() {
-        val currentState = _uiState.value
-        if (!currentState.hasRomanization) return
-
-        val newValue = !currentState.showRomanization
-        appSettingsManager.update {
-            copy(showRomanization = newValue)
-        }
-        _uiState.update {
-            it.copy(showRomanization = newValue)
-        }
+        if (!_uiState.value.hasRomanization) return
+        val newValue = !appSettingsManager.settings.value.showRomanization
+        appSettingsManager.update { copy(showRomanization = newValue) }
     }
 
     fun togglePhonetic() {
-        val currentState = _uiState.value
-        if (!currentState.hasPhonetic) return
-
-        val newValue = !currentState.showPhonetic
+        if (!_uiState.value.hasPhonetic) return
+        val newValue = !appSettingsManager.settings.value.showPhonetic
         appSettingsManager.update { copy(showPhonetic = newValue) }
-        _uiState.update { it.copy(showPhonetic = newValue) }
     }
 
     /**

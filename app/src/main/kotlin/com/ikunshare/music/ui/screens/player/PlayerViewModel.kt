@@ -9,6 +9,7 @@ import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
+import android.os.SystemClock
 import android.telephony.PhoneStateListener
 import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
@@ -23,6 +24,7 @@ import com.ikunshare.music.database.Playlist
 import com.ikunshare.music.manager.MusicRepository
 import com.ikunshare.music.manager.SoundMediaPlayer
 import com.ikunshare.music.manager.TrialPlaybackRequests
+import com.ikunshare.music.model.LyricLine
 import com.ikunshare.music.model.MusicItem
 import com.ikunshare.music.model.ParsedLyric
 import com.ikunshare.music.model.PlayMode
@@ -255,12 +257,11 @@ class PlayerViewModel(
         context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
 
     private fun handleCallState(state: Int) {
-        val settings = appSettingsManager.settings.value
-        if (!settings.pauseOnPhoneCall) return
+        val pauseEnabled = appSettingsManager.settings.value.pauseOnPhoneCall
         when (state) {
             TelephonyManager.CALL_STATE_RINGING,
             TelephonyManager.CALL_STATE_OFFHOOK -> {
-                if (_uiState.value.isPlaying) {
+                if (pauseEnabled && _uiState.value.isPlaying) {
                     wasPlayingBeforeCall = true
                     togglePlayPause()
                 }
@@ -269,7 +270,7 @@ class PlayerViewModel(
             TelephonyManager.CALL_STATE_IDLE -> {
                 if (wasPlayingBeforeCall) {
                     wasPlayingBeforeCall = false
-                    togglePlayPause()
+                    if (pauseEnabled && !_uiState.value.isPlaying) togglePlayPause()
                 }
             }
         }
@@ -317,7 +318,9 @@ class PlayerViewModel(
 
     private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         val behavior = appSettingsManager.settings.value.audioFocusBehavior
-        if (behavior == "none") return@OnAudioFocusChangeListener
+        if (behavior == "none" && focusChange != AudioManager.AUDIOFOCUS_GAIN) {
+            return@OnAudioFocusChangeListener
+        }
         when (focusChange) {
             AudioManager.AUDIOFOCUS_LOSS -> {
                 // 永久焦点丢失：先恢复音量，暂停播放，并启动看门狗待对方停止后重新申请焦点
@@ -368,7 +371,7 @@ class PlayerViewModel(
                     mediaPlayer.setVolume(_uiState.value.volume)
                     isDucking = false
                 }
-                if (wasPlayingBeforeFocusLoss && !_uiState.value.isPlaying) {
+                if (behavior != "none" && wasPlayingBeforeFocusLoss && !_uiState.value.isPlaying) {
                     togglePlayPause()
                 }
                 wasPlayingBeforeFocusLoss = false
@@ -544,6 +547,14 @@ class PlayerViewModel(
                 }
         }
 
+        viewModelScope.launch {
+            appSettingsManager.settings
+                .map { it.pushLyricsSubLine }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { publishLyricAt(mediaPlayer.currentPosition, mediaPlayer.isPlaying) }
+        }
+
         // 监听歌词重定向变化：对当前歌重新加载歌词并重推（应用内 + 桌面歌词 + 词幕）
         viewModelScope.launch {
             localMusicStore.redirectKeysFlow
@@ -570,17 +581,17 @@ class PlayerViewModel(
                 if (isLyriconEnabled()) {
                     MusicApplication.instance?.lyriconAdapter?.updateSong(song, parsed)
                 }
-                val position = mediaPlayer.currentPosition
-                val currentLine = parsed.getCurrentLine(position + LYRIC_ADVANCE_MS)
-                MusicApplication.instance?.floatingLyricsManager?.updateLyricState(
-                    currentLine, position + LYRIC_ADVANCE_MS, mediaPlayer.isPlaying
-                )
+                publishLyricAt(mediaPlayer.currentPosition, mediaPlayer.isPlaying)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 ensureActive()
                 if (_uiState.value.currentSong?.uniqueKey != song.uniqueKey) return@launch
                 currentParsedLyric = ParsedLyric.EMPTY
+                if (isLyriconEnabled()) {
+                    MusicApplication.instance?.lyriconAdapter?.updateSong(song, null)
+                }
+                publishLyricAt(mediaPlayer.currentPosition, mediaPlayer.isPlaying)
             }
         }
     }
@@ -630,9 +641,10 @@ class PlayerViewModel(
 
         // 媒体准备完成回调：更新时长并开始进度更新
         mediaPlayer.setOnPreparedListener { duration ->
+            errorRetrying = false
             mediaLoaded = true
             qqAccumulatedPlayMs = 0L
-            qqPlayStartTimestamp = System.currentTimeMillis()
+            qqPlayStartTimestamp = System.nanoTime() / 1_000_000L
             _uiState.update {
                 it.copy(
                     duration = duration,
@@ -758,7 +770,7 @@ class PlayerViewModel(
                     error = null, duration = 0, currentPosition = 0, currentQuality = null,
                     availableQualities = emptyList(), isFavorite = false, currentLyricText = "", currentLyricPushText = "") }
                 _queueSource.value = null
-                playbackStateStore.clear()
+                clearPlaybackState()
                 MusicApplication.instance?.playbackSnapshot = null
                 MusicApplication.instance?.floatingLyricsManager?.clearLyric()
                 if (isLyriconEnabled()) MusicApplication.instance?.lyriconAdapter?.clearSong()
@@ -771,7 +783,7 @@ class PlayerViewModel(
             if (_playlist.isEmpty()) {
                 stopAfterQueueDrains = current != null
                 _queueSource.value = null
-                playbackStateStore.clear()
+                clearPlaybackState()
                 MusicApplication.instance?.playbackSnapshot = MusicApplication.instance?.playbackSnapshot?.copy(
                     stopAfterQueueDrains = stopAfterQueueDrains, queueSource = null)
             } else scheduleQueuePersistence()
@@ -794,6 +806,12 @@ class PlayerViewModel(
         return true
     }
 
+    private fun clearPlaybackState() {
+        queuePersistenceJob?.cancel()
+        queuePersistenceJob = null
+        playbackStateStore.clear()
+    }
+
     private fun scheduleQueuePersistence() {
         queuePersistenceJob?.cancel()
         val source = _queueSource.value
@@ -807,7 +825,7 @@ class PlayerViewModel(
             val stop = stopAfterQueueDrains
             val encoded = withContext(Dispatchers.IO) { playbackStateStore.encodePlaylist(playlist) }
             ensureActive()
-            if (source == _queueSource.value) {
+            if (source == _queueSource.value && currentIndex >= 0 && _playlist.isNotEmpty()) {
                 playbackStateStore.saveEncoded(encoded, index, position, mode, stop, source)
             }
         }
@@ -881,11 +899,7 @@ class PlayerViewModel(
                         parsed
                     )
                     // 歌词加载完成后立即推送一次，避免进度循环先启动时歌词为空
-                    val position = mediaPlayer.currentPosition
-                    val currentLine = parsed.getCurrentLine(position + LYRIC_ADVANCE_MS)
-                    MusicApplication.instance?.floatingLyricsManager?.updateLyricState(
-                        currentLine, position + LYRIC_ADVANCE_MS, true
-                    )
+                    publishLyricAt(mediaPlayer.currentPosition, mediaPlayer.isPlaying)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
@@ -922,6 +936,7 @@ class PlayerViewModel(
 
             try {
                 val audioCacheKey = audioCache?.buildKey(song, quality.id)
+                audioCache?.setActiveKey(audioCacheKey)
 
                 // 缓存命中：直接用 CachedChunkDataSource 播放，跳过 getMediaInfo
                 val cachedDs = audioCacheKey?.let { audioCache.getCachedChunks(it) }
@@ -958,15 +973,17 @@ class PlayerViewModel(
                     mediaInfo.encryptionInfo.isEncrypt && it.isNotEmpty()
                 }
 
-                android.util.Log.d("KunSound", "playUrl=$playUrl encrypted=${ekey != null}")
+                android.util.Log.d("KunSound", "Media URL resolved; encrypted=${ekey != null}")
 
                 if (ekey != null) {
-                    val ds = withContext(Dispatchers.IO) {
-                        DecryptingMediaDataSource(playUrl, ekey, audioCache, audioCacheKey).also {
-                            it.awaitReady()
-                        }
+                    val ds = DecryptingMediaDataSource(playUrl, ekey, audioCache, audioCacheKey)
+                    try {
+                        withContext(Dispatchers.IO) { ds.awaitReady() }
+                        mediaPlayer.prepareAndPlayWithDataSource(ds, startPosition)
+                    } catch (e: Exception) {
+                        runCatching { ds.close() }
+                        throw e
                     }
-                    mediaPlayer.prepareAndPlayWithDataSource(ds, startPosition)
                 } else {
                     mediaPlayer.prepareAndPlay(playUrl, startPosition)
                     if (audioCache != null && audioCacheKey != null) {
@@ -990,6 +1007,7 @@ class PlayerViewModel(
                 }
 
             } catch (_: IOException) {
+                ensureActive()
                 if (!retried) {
                     repository.invalidateMediaInfoForSource(songSource, song, quality)
                     loadAndPlaySong(song, startPosition, retried = true)
@@ -1002,10 +1020,11 @@ class PlayerViewModel(
                     )
                 }
                 scheduleAutoSkip()
-            } catch (_: CancellationException) {
+            } catch (e: CancellationException) {
                 // 快速切歌取消协程，不显示错误
-                throw CancellationException()
+                throw e
             } catch (e: Exception) {
+                ensureActive()
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -1018,6 +1037,12 @@ class PlayerViewModel(
                 scheduleAutoSkip()
             }
         }
+    }
+
+    private fun preparePlaybackResume() {
+        wasPlayingBeforeFocusLoss = false
+        cancelFocusResumeWatcher()
+        requestAudioFocus()
     }
 
     /**
@@ -1035,7 +1060,7 @@ class PlayerViewModel(
             stopProgressUpdates()
             // 累计播放时间
             if (qqPlayStartTimestamp > 0) {
-                qqAccumulatedPlayMs += System.currentTimeMillis() - qqPlayStartTimestamp
+                qqAccumulatedPlayMs += System.nanoTime() / 1_000_000L - qqPlayStartTimestamp
                 qqPlayStartTimestamp = 0L
             }
             // 进入暂停态：清除焦点恢复标志，避免 watcher 在用户手动暂停后误触发恢复。
@@ -1072,9 +1097,10 @@ class PlayerViewModel(
                     PlayMode.SINGLE_PLAY -> {
                         // 单曲播放完暂停后再按：从头播放当前歌曲
                         seekTo(0L)
+                        preparePlaybackResume()
                         mediaPlayer.play()
                         qqAccumulatedPlayMs = 0L
-                        qqPlayStartTimestamp = System.currentTimeMillis()
+                        qqPlayStartTimestamp = System.nanoTime() / 1_000_000L
                         startProgressUpdates()
                         _uiState.update { it.copy(isPlaying = true) }
                         return
@@ -1085,8 +1111,9 @@ class PlayerViewModel(
                 }
             }
 
+            preparePlaybackResume()
             mediaPlayer.play()
-            qqPlayStartTimestamp = System.currentTimeMillis()
+            qqPlayStartTimestamp = System.nanoTime() / 1_000_000L
             startProgressUpdates()
             _uiState.update { it.copy(isPlaying = true) }
             if (isLyriconEnabled()) MusicApplication.instance?.lyriconAdapter?.setPlaybackState(true)
@@ -1103,6 +1130,7 @@ class PlayerViewModel(
         mediaPlayer.seekTo(clampedPosition)
         _currentPosition.value = clampedPosition
         _uiState.update { it.copy(currentPosition = clampedPosition) }
+        publishLyricAt(clampedPosition, mediaPlayer.isPlaying)
         if (isLyriconEnabled()) {
             MusicApplication.instance?.lyriconAdapter?.seekTo(clampedPosition)
         }
@@ -1170,8 +1198,8 @@ class PlayerViewModel(
                     currentIndex++
                     loadAndPlaySong(_playlist[currentIndex])
                 } else {
-                    // 到末尾暂停
-                    mediaPlayer.stop()
+                    // 到末尾暂停，保留已加载状态，之后仍可恢复播放
+                    mediaPlayer.pause()
                     stopProgressUpdates()
                     _uiState.update { it.copy(isPlaying = false) }
                 }
@@ -1249,19 +1277,23 @@ class PlayerViewModel(
      * 设置播放器音量
      */
     fun setVolume(volume: Float) {
-        mediaPlayer.setVolume(volume)
-        _uiState.update { it.copy(volume = volume) }
+        val normalized = volume.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: return
+        mediaPlayer.setVolume(normalized)
+        _uiState.update { it.copy(volume = normalized) }
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        mediaPlayer.setPlaybackSpeed(speed)
-        _uiState.update { it.copy(playbackSpeed = speed) }
+        val normalized = speed.takeIf { it.isFinite() }?.coerceIn(0.25f, 3f) ?: return
+        if (_uiState.value.playbackSpeed == normalized) return
+        mediaPlayer.setPlaybackSpeed(normalized)
+        _uiState.update { it.copy(playbackSpeed = normalized) }
         // 同步到 MediaSession
         PlaybackService.getInstance()?.updatePlaybackState(
             _uiState.value.isPlaying,
             mediaPlayer.currentPosition,
-            speed
+            normalized
         )
+        publishLyricAt(mediaPlayer.currentPosition, mediaPlayer.isPlaying)
     }
 
     /**
@@ -1329,7 +1361,7 @@ class PlayerViewModel(
         shuffledPlaylist.clear()
         shuffledIndex = -1
         stopAfterQueueDrains = currentSong != null
-        playbackStateStore.clear()
+        clearPlaybackState()
         MusicApplication.instance?.playbackSnapshot = currentSong?.let { song ->
             MusicApplication.PlaybackSnapshot(
                 song = song,
@@ -1367,6 +1399,12 @@ class PlayerViewModel(
     /**
      * 切换收藏状态
      */
+    fun refreshFavoriteState() {
+        val song = _uiState.value.currentSong ?: return
+        val favorite = localMusicStore.isFavorite(song)
+        _uiState.update { it.copy(isFavorite = favorite) }
+    }
+
     fun toggleFavorite() {
         val currentSong = _uiState.value.currentSong ?: return
 
@@ -1380,13 +1418,13 @@ class PlayerViewModel(
     fun addFavorite() {
         val currentSong = _uiState.value.currentSong ?: return
         localMusicStore.addFavorite(currentSong)
-        _uiState.update { it.copy(isFavorite = true) }
+        refreshFavoriteState()
     }
 
     fun removeFavorite() {
         val currentSong = _uiState.value.currentSong ?: return
         localMusicStore.removeFavorite(currentSong)
-        _uiState.update { it.copy(isFavorite = false) }
+        refreshFavoriteState()
     }
 
     fun addToPlaylist(playlistId: Long) {
@@ -1470,6 +1508,7 @@ class PlayerViewModel(
         _uiState.update {
             it.copy(currentPosition = duration)
         }
+        publishLyricAt(duration, isPlaying = false)
 
         // QQ 音乐听歌上报
         reportQQListening(duration)
@@ -1500,7 +1539,7 @@ class PlayerViewModel(
                 stopAfterQueueDrains = false
                 mediaLoaded = false
                 _uiState.update { it.copy(isPlaying = false) }
-                playbackStateStore.clear()
+                clearPlaybackState()
                 MusicApplication.instance?.playbackSnapshot = null
             } else if (playMode == PlayMode.SINGLE_LOOP) {
                 val resumed = _playlist.getOrNull(currentIndex)
@@ -1518,7 +1557,7 @@ class PlayerViewModel(
                 seekTo(0L)
                 mediaPlayer.play()
                 qqAccumulatedPlayMs = 0L
-                qqPlayStartTimestamp = System.currentTimeMillis()
+                qqPlayStartTimestamp = System.nanoTime() / 1_000_000L
                 startProgressUpdates()
                 _uiState.update { it.copy(isPlaying = true) }
             }
@@ -1573,41 +1612,42 @@ class PlayerViewModel(
         }
     }
 
+    private fun resolveLyricPushText(line: LyricLine?): String {
+        val lyricText = line?.text.orEmpty()
+        return when (appSettingsManager.settings.value.pushLyricsSubLine) {
+            "translation" -> line?.translation?.takeIf { it.isNotBlank() } ?: lyricText
+            "romanization" -> line?.romanization?.takeIf { it.isNotBlank() } ?: lyricText
+            else -> lyricText
+        }
+    }
+
+    private fun publishLyricAt(position: Long, isPlaying: Boolean) {
+        val lyricPosition = position + LYRIC_ADVANCE_MS
+        val line = currentParsedLyric.getCurrentLine(lyricPosition)
+        val lyricText = line?.text.orEmpty()
+        val lyricPushText = resolveLyricPushText(line)
+        if (lyricText != _uiState.value.currentLyricText || lyricPushText != _uiState.value.currentLyricPushText) {
+            _uiState.update {
+                it.copy(currentLyricText = lyricText, currentLyricPushText = lyricPushText)
+            }
+        }
+        MusicApplication.instance?.floatingLyricsManager?.updateLyricState(
+            line, lyricPosition, isPlaying, _uiState.value.playbackSpeed
+        )
+    }
+
     /**
      * 开始定时更新播放进度
      *
      * 每 200ms 更新进度，每 15 秒保存播放状态到本地。
      */
     private fun startProgressUpdates() {
-        stopProgressUpdates()
+        cancelProgressUpdates()
         progressJob = viewModelScope.launch {
             while (isActive) {
                 val position = mediaPlayer.currentPosition
                 _currentPosition.value = position
-                val currentLine = currentParsedLyric.getCurrentLine(position + LYRIC_ADVANCE_MS)
-                val lyricText = currentLine?.text ?: ""
-                val pushSubLine = appSettingsManager.settings.value.pushLyricsSubLine
-                val lyricPushText = when (pushSubLine) {
-                    "translation" -> currentLine?.translation?.takeIf { it.isNotBlank() }
-                        ?: lyricText
-
-                    "romanization" -> currentLine?.romanization?.takeIf { it.isNotBlank() }
-                        ?: lyricText
-
-                    else -> lyricText
-                }
-                if (lyricText != _uiState.value.currentLyricText || lyricPushText != _uiState.value.currentLyricPushText) {
-                    _uiState.update {
-                        it.copy(
-                            currentLyricText = lyricText,
-                            currentLyricPushText = lyricPushText
-                        )
-                    }
-                }
-
-                // 推送桌面歌词
-                val floatingManager = MusicApplication.instance?.floatingLyricsManager
-                floatingManager?.updateLyricState(currentLine, position + LYRIC_ADVANCE_MS, true)
+                publishLyricAt(position, isPlaying = true)
 
                 // 更新 Lyricon 播放位置
                 if (isLyriconEnabled()) MusicApplication.instance?.lyriconAdapter?.updatePosition(
@@ -1615,10 +1655,10 @@ class PlayerViewModel(
                 )
 
                 // 每 15 秒保存播放状态
-                val now = System.currentTimeMillis()
+                val now = System.nanoTime() / 1_000_000L
                 if (now - lastSaveTimeMs >= STATE_SAVE_INTERVAL_MS) {
                     lastSaveTimeMs = now
-                    savePlaybackState()
+                    savePlaybackState(onIoDispatcher = true)
                 }
 
                 delay(PROGRESS_UPDATE_INTERVAL_MS.milliseconds)
@@ -1626,31 +1666,43 @@ class PlayerViewModel(
         }
     }
 
+    private fun cancelProgressUpdates() {
+        progressJob?.cancel()
+        progressJob = null
+    }
+
     /**
      * 停止进度更新
      */
     private fun stopProgressUpdates() {
-        progressJob?.cancel()
-        progressJob = null
-        MusicApplication.instance?.floatingLyricsManager?.updateLyricState(
-            currentParsedLyric.getCurrentLine(mediaPlayer.currentPosition),
-            mediaPlayer.currentPosition, false
-        )
+        cancelProgressUpdates()
+        val position = mediaPlayer.currentPosition
+        _currentPosition.value = position
+        _uiState.update { it.copy(currentPosition = position) }
+        publishLyricAt(position, isPlaying = false)
     }
 
     /**
-     * 保存播放状态到 PlaybackStateStore
+     * 保存播放状态到 PlaybackStateStore；定期保存可移到 IO，销毁时仍同步执行。
      */
-    private fun savePlaybackState() {
-        if (_playlist.isNotEmpty() && currentIndex >= 0) {
-            playbackStateStore.save(
-                playlist = _playlist.toList(),
-                currentIndex = currentIndex,
-                positionMs = mediaPlayer.currentPosition,
-                playMode = _uiState.value.playMode,
-                stopAfterQueueDrains = stopAfterQueueDrains,
-                queueSource = _queueSource.value
-            )
+    private fun savePlaybackState(onIoDispatcher: Boolean = false) {
+        if (_playlist.isEmpty() || currentIndex < 0) return
+        val playlist = _playlist.toList()
+        val index = currentIndex
+        val position = mediaPlayer.currentPosition
+        val mode = _uiState.value.playMode
+        val stop = stopAfterQueueDrains
+        val source = _queueSource.value
+        queuePersistenceJob?.cancel()
+        if (onIoDispatcher) {
+            queuePersistenceJob = viewModelScope.launch(Dispatchers.IO) {
+                val encoded = playbackStateStore.encodePlaylist(playlist)
+                ensureActive()
+                playbackStateStore.saveEncoded(encoded, index, position, mode, stop, source)
+            }
+        } else {
+            queuePersistenceJob = null
+            playbackStateStore.save(playlist, index, position, mode, stop, source)
         }
     }
 
@@ -1759,13 +1811,13 @@ class PlayerViewModel(
             finishCurrentSong = finishCurrentSong,
             action = action
         )
+        val deadlineMs = SystemClock.elapsedRealtime() + totalMs
         sleepTimerJob = viewModelScope.launch {
-            var remaining = totalMs
-            while (remaining > 0 && isActive) {
-                delay(1000L.milliseconds)
-                remaining -= 1000L
-                if (remaining < 0) remaining = 0
+            while (isActive) {
+                val remaining = (deadlineMs - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
                 _sleepTimerState.update { it.copy(remainingMs = remaining) }
+                if (remaining == 0L) break
+                delay(remaining.coerceAtMost(1000L).milliseconds)
             }
             // 倒计时结束
             if (finishCurrentSong && _uiState.value.isPlaying) {
@@ -1837,11 +1889,7 @@ class PlayerViewModel(
         cancelSleepTimer()
         when (action) {
             SleepTimerAction.PAUSE -> {
-                if (_uiState.value.isPlaying) {
-                    mediaPlayer.pause()
-                    stopProgressUpdates()
-                    _uiState.update { it.copy(isPlaying = false) }
-                }
+                if (_uiState.value.isPlaying) togglePlayPause()
             }
 
             SleepTimerAction.EXIT -> {
@@ -1881,7 +1929,7 @@ class PlayerViewModel(
                 as? com.ikunshare.music.platform.qq.QQProvider ?: return
         // 结算当前播放区间
         if (qqPlayStartTimestamp > 0) {
-            qqAccumulatedPlayMs += System.currentTimeMillis() - qqPlayStartTimestamp
+            qqAccumulatedPlayMs += System.nanoTime() / 1_000_000L - qqPlayStartTimestamp
             qqPlayStartTimestamp = 0L
         }
         val playTimeSec = qqAccumulatedPlayMs / 1000

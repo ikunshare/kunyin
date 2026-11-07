@@ -2,11 +2,13 @@ package com.ikunshare.music.common
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.UUID
 
 /** 自定义主题条目 */
@@ -139,6 +141,7 @@ class AppSettingsManager(context: Context) {
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+    private val internalFilesDir = context.filesDir
 
     private val _settings = MutableStateFlow(load())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
@@ -155,7 +158,14 @@ class AppSettingsManager(context: Context) {
             .apply()
     }
 
-    private fun load(): AppSettings = AppSettings(
+    private fun load(): AppSettings = try {
+        loadUnsafe()
+    } catch (e: Exception) {
+        Log.e("AppSettings", "Failed to load settings; using defaults", e)
+        AppSettings()
+    }
+
+    private fun loadUnsafe(): AppSettings = AppSettings(
         showTranslation = prefs.getBoolean("show_translation", false),
         showRomanization = prefs.getBoolean("show_romanization", false),
         showPhonetic = prefs.getBoolean("show_phonetic", false),
@@ -246,9 +256,11 @@ class AppSettingsManager(context: Context) {
         albumSortAsc = prefs.getBoolean("album_sort_asc", false)
     ).withExclusiveFloatingLyricSubLine()
 
+    @Synchronized
     fun update(transform: AppSettings.() -> AppSettings) {
         val previous = _settings.value
         val new = previous.transform().withExclusiveFloatingLyricSubLine(previous)
+        if (new == previous) return
         _settings.value = new
         prefs.edit()
             .putBoolean("show_translation", new.showTranslation)
@@ -337,15 +349,23 @@ class AppSettingsManager(context: Context) {
         val json = prefs.getString("custom_themes", null) ?: return emptyList()
         return try {
             val arr = JSONArray(json)
-            List(arr.length()) { i ->
-                val obj = arr.getJSONObject(i)
-                CustomThemeEntry(
-                    id = obj.getString("id"),
-                    name = obj.getString("name"),
-                    colorsJson = obj.getString("colorsJson"),
-                    bgImagePath = obj.optString("bgImagePath", "")
-                )
+            val themes = ArrayList<CustomThemeEntry>(arr.length())
+            for (i in 0 until arr.length()) {
+                try {
+                    val obj = arr.getJSONObject(i)
+                    themes.add(
+                        CustomThemeEntry(
+                            id = obj.getString("id"),
+                            name = obj.getString("name"),
+                            colorsJson = obj.getString("colorsJson"),
+                            bgImagePath = obj.optString("bgImagePath", "")
+                        )
+                    )
+                } catch (e: Exception) {
+                    Log.w("AppSettings", "Skipping invalid custom theme at index $i", e)
+                }
             }
+            themes
         } catch (_: Exception) {
             emptyList()
         }
@@ -365,34 +385,50 @@ class AppSettingsManager(context: Context) {
         _customThemes.value = themes
     }
 
+    @Synchronized
     fun addCustomTheme(name: String, colorsJson: String = ""): String {
-        val id = UUID.randomUUID().toString().take(8)
+        val ids = _customThemes.value.mapTo(HashSet()) { it.id }
+        var id: String
+        do {
+            id = UUID.randomUUID().toString().take(8)
+        } while (!ids.add(id))
         val list = _customThemes.value.toMutableList()
         list.add(CustomThemeEntry(id, name, colorsJson))
         saveCustomThemes(list)
         return id
     }
 
+    @Synchronized
     fun updateCustomTheme(id: String, transform: CustomThemeEntry.() -> CustomThemeEntry) {
         val list = _customThemes.value.toMutableList()
         val idx = list.indexOfFirst { it.id == id }
         if (idx >= 0) {
-            list[idx] = list[idx].transform()
+            val current = list[idx]
+            val updated = current.transform()
+            if (updated == current) return
+            list[idx] = updated
             saveCustomThemes(list)
+            if (current.bgImagePath != updated.bgImagePath) {
+                deleteUnusedCustomBackground(current.bgImagePath, list)
+            }
         }
     }
 
+    @Synchronized
     fun deleteCustomTheme(id: String) {
         val list = _customThemes.value.toMutableList()
-        list.removeAll { it.id == id }
-        saveCustomThemes(list)
+        val removedTheme = list.firstOrNull { it.id == id }
+        val removed = list.removeAll { it.id == id }
+        val s = _settings.value
+        val referenced = s.themeMode == "custom_$id" ||
+            s.systemLightTheme == "custom_$id" || s.systemDarkTheme == "custom_$id"
+        if (!removed && !referenced) return
+        if (removed) saveCustomThemes(list)
         // 如果当前使用的是被删除的主题，回退到系统
-        val current = _settings.value.themeMode
-        if (current == "custom_$id") {
+        if (s.themeMode == "custom_$id") {
             update { copy(themeMode = "system") }
         }
         // 清理 systemLightTheme / systemDarkTheme 引用
-        val s = _settings.value
         if (s.systemLightTheme == "custom_$id" || s.systemDarkTheme == "custom_$id") {
             update {
                 copy(
@@ -401,6 +437,34 @@ class AppSettingsManager(context: Context) {
                 )
             }
         }
+        if (removed) deleteUnusedCustomBackground(removedTheme?.bgImagePath.orEmpty(), list)
+    }
+
+    internal fun releaseCustomBackground(path: String) {
+        deleteUnusedCustomBackground(path, _customThemes.value)
+    }
+
+    private fun deleteUnusedCustomBackground(path: String, themes: List<CustomThemeEntry>) {
+        if (path.isBlank() || _settings.value.bgImagePath == path || themes.any { it.bgImagePath == path }) return
+        try {
+            val file = File(path).canonicalFile
+            val isManagedImage = file.name == "custom_bg.jpg" || file.name.startsWith("custom_bg_")
+            if (file.parentFile != internalFilesDir.canonicalFile || !isManagedImage) return
+            if (file.exists() && !file.delete()) Log.w("AppSettings", "Failed to delete unused theme background")
+        } catch (e: Exception) {
+            Log.w("AppSettings", "Failed to delete unused theme background", e)
+        }
+    }
+
+    @Synchronized
+    fun restoreBackupSnapshot(
+        settings: AppSettings,
+        themes: List<CustomThemeEntry>,
+        history: List<String>
+    ) {
+        update { settings }
+        saveCustomThemes(themes.toList())
+        saveHistory(history.toList())
     }
 
     fun getCustomTheme(id: String): CustomThemeEntry? =
@@ -431,12 +495,18 @@ class AppSettingsManager(context: Context) {
         val json = prefs.getString(KEY_SEARCH_HISTORY, null) ?: return emptyList()
         return try {
             val arr = JSONArray(json)
-            List(arr.length()) { arr.getString(it) }
+            val history = ArrayList<String>(arr.length())
+            for (i in 0 until arr.length()) {
+                val item = runCatching { arr.getString(i) }.getOrNull()
+                if (!item.isNullOrBlank()) history.add(item)
+            }
+            history
         } catch (_: Exception) {
             emptyList()
         }
     }
 
+    @Synchronized
     fun addSearchHistory(query: String) {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return
@@ -447,11 +517,13 @@ class AppSettingsManager(context: Context) {
         saveHistory(list)
     }
 
+    @Synchronized
     fun removeSearchHistory(query: String) {
         val list = getSearchHistory().toMutableList()
         if (list.remove(query)) saveHistory(list)
     }
 
+    @Synchronized
     fun clearSearchHistory() {
         prefs.edit().remove(KEY_SEARCH_HISTORY).apply()
     }

@@ -93,8 +93,7 @@ fun LiquidGlassMiniPlayer(
             enableBlur = enableBlur,
             modifier = Modifier
                 .padding(
-                    // 12 + 8 + 56 + 8 + 16 + 280 + 16 + 36 - 16
-                    start = if (isWideScreen) 416.dp else 36.dp,
+                    start = if (isWideScreen) 88.dp else 36.dp,
                     top = 8.dp,
                     bottom = 8.dp,
                     end = if (compactMode) 8.dp else 36.dp

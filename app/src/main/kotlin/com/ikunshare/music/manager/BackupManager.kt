@@ -100,6 +100,7 @@ class BackupManager(
     companion object {
         private const val BACKUP_VERSION = 1
         private const val MAX_BG_IMAGE_SIZE = 2L * 1024 * 1024 // 2MB
+        private val MAX_BG_IMAGE_BASE64_LENGTH = (MAX_BG_IMAGE_SIZE + 2) / 3 * 4
     }
 
     // ── 导出 ──
@@ -303,6 +304,30 @@ class BackupManager(
     // ── 恢复 ──
 
     suspend fun restore(data: BackupData, options: RestoreOptions): RestoreResult {
+        val settingsSnapshot = appSettingsManager.settings.value
+        val themesSnapshot = appSettingsManager.customThemes.value.toList()
+        val historySnapshot = appSettingsManager.getSearchHistory()
+        val createdBackgroundFiles = mutableListOf<File>()
+        try {
+            return restoreSelected(data, options, createdBackgroundFiles)
+        } catch (failure: Exception) {
+            try {
+                appSettingsManager.restoreBackupSnapshot(settingsSnapshot, themesSnapshot, historySnapshot)
+            } catch (rollbackFailure: Exception) {
+                failure.addSuppressed(rollbackFailure)
+            }
+            createdBackgroundFiles.forEach { file ->
+                try { file.delete() } catch (_: Exception) { }
+            }
+            throw failure
+        }
+    }
+
+    private suspend fun restoreSelected(
+        data: BackupData,
+        options: RestoreOptions,
+        createdBackgroundFiles: MutableList<File>
+    ): RestoreResult {
         val restoreContext = currentCoroutineContext()
         restoreContext.ensureActive()
         var themesAdded = 0
@@ -329,17 +354,26 @@ class BackupManager(
                     val newId = appSettingsManager.addCustomTheme(theme.name, theme.colorsJson)
                     // 恢复背景图
                     if (theme.bgImageBase64.isNotBlank()) {
+                        var backgroundFile: File? = null
                         try {
+                            if (theme.bgImageBase64.length.toLong() > MAX_BG_IMAGE_BASE64_LENGTH) {
+                                throw IllegalArgumentException("Background image is too large")
+                            }
                             val bytes = Base64.decode(theme.bgImageBase64, Base64.NO_WRAP)
-                            val dest = File(
-                                context.filesDir,
-                                "custom_bg_${System.currentTimeMillis()}.jpg"
-                            )
+                            if (bytes.size.toLong() > MAX_BG_IMAGE_SIZE) {
+                                throw IllegalArgumentException("Background image is too large")
+                            }
+                            val dest = File.createTempFile("custom_bg_restore_", ".jpg", context.filesDir)
+                                .also {
+                                    backgroundFile = it
+                                    createdBackgroundFiles.add(it)
+                                }
                             dest.writeBytes(bytes)
                             appSettingsManager.updateCustomTheme(newId) {
                                 copy(bgImagePath = dest.absolutePath)
                             }
-                        } catch (_: Exception) { /* skip bg image */
+                        } catch (_: Exception) {
+                            backgroundFile?.delete()
                         }
                     }
                     existingNames.add(theme.name)

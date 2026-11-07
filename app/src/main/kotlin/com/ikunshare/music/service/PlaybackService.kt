@@ -9,16 +9,23 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.provider.Settings
+import android.widget.Toast
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
 import com.ikunshare.music.MainActivity
+import com.ikunshare.music.MusicApplication
 import com.ikunshare.music.R
 import androidx.media.app.NotificationCompat as MediaNotificationCompat
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class PlaybackService : Service() {
 
@@ -31,13 +38,15 @@ class PlaybackService : Service() {
         const val ACTION_NEXT = "com.ikunshare.music.NEXT"
         const val ACTION_PREV = "com.ikunshare.music.PREV"
         const val ACTION_SEEK_TO = "com.ikunshare.music.SEEK_TO"
+        const val ACTION_FAVORITE_CHANGED = "com.ikunshare.music.FAVORITE_CHANGED"
         const val ACTION_TOGGLE_FAVORITE = "com.ikunshare.music.TOGGLE_FAVORITE"
         const val ACTION_TOGGLE_FLOATING_LYRICS = "com.ikunshare.music.TOGGLE_FLOATING_LYRICS"
         const val ACTION_STOP_AND_EXIT = "com.ikunshare.music.STOP_AND_EXIT"
         const val EXTRA_SEEK_POSITION = "seek_position"
 
-        private var instance: PlaybackService? = null
-        fun getInstance(): PlaybackService? = instance
+        private val currentInstance = MutableStateFlow<PlaybackService?>(null)
+        val instanceFlow: StateFlow<PlaybackService?> = currentInstance.asStateFlow()
+        fun getInstance(): PlaybackService? = currentInstance.value
     }
 
     lateinit var mediaSession: MediaSessionCompat
@@ -64,46 +73,52 @@ class PlaybackService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        instance = this
+        (application as? MusicApplication)?.let { app ->
+            floatingLyricsEnabled = app.appSettingsManager.settings.value.floatingLyricsEnabled
+            currentIsFavorite = app.playbackSnapshot?.song?.let(app.localMusicStore::isFavorite) == true
+        }
         createNotificationChannel()
 
         mediaSession = MediaSessionCompat(this, "KunyinPlayer").apply {
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlay() {
-                    sendBroadcast(Intent(ACTION_PLAY_PAUSE).setPackage(packageName))
+                    if (!isPlaying) {
+                        (application as? MusicApplication)?.playbackController?.play()
+                            ?: sendBroadcast(Intent(ACTION_PLAY_PAUSE).setPackage(packageName))
+                    }
                 }
 
                 override fun onPause() {
-                    sendBroadcast(Intent(ACTION_PLAY_PAUSE).setPackage(packageName))
+                    if (isPlaying) {
+                        (application as? MusicApplication)?.playbackController?.pause()
+                            ?: sendBroadcast(Intent(ACTION_PLAY_PAUSE).setPackage(packageName))
+                    }
                 }
 
                 override fun onSkipToNext() {
-                    sendBroadcast(Intent(ACTION_NEXT).setPackage(packageName))
+                    (application as? MusicApplication)?.playbackController?.next()
+                        ?: sendBroadcast(Intent(ACTION_NEXT).setPackage(packageName))
                 }
 
                 override fun onSkipToPrevious() {
-                    sendBroadcast(Intent(ACTION_PREV).setPackage(packageName))
+                    (application as? MusicApplication)?.playbackController?.previous()
+                        ?: sendBroadcast(Intent(ACTION_PREV).setPackage(packageName))
                 }
 
                 override fun onSeekTo(pos: Long) {
-                    sendBroadcast(
-                        Intent(ACTION_SEEK_TO)
-                            .setPackage(packageName)
-                            .putExtra(EXTRA_SEEK_POSITION, pos)
-                    )
+                    (application as? MusicApplication)?.playbackController?.seekTo(pos)
+                        ?: sendBroadcast(
+                            Intent(ACTION_SEEK_TO)
+                                .setPackage(packageName)
+                                .putExtra(EXTRA_SEEK_POSITION, pos)
+                        )
                 }
 
                 override fun onCustomAction(action: String?, extras: Bundle?) {
                     when (action) {
-                        ACTION_TOGGLE_FAVORITE ->
-                            sendBroadcast(Intent(ACTION_TOGGLE_FAVORITE).setPackage(packageName))
+                        ACTION_TOGGLE_FAVORITE -> toggleFavorite()
 
-                        ACTION_TOGGLE_FLOATING_LYRICS ->
-                            sendBroadcast(
-                                Intent(ACTION_TOGGLE_FLOATING_LYRICS).setPackage(
-                                    packageName
-                                )
-                            )
+                        ACTION_TOGGLE_FLOATING_LYRICS -> toggleFloatingLyrics()
                     }
                 }
             })
@@ -122,12 +137,59 @@ class PlaybackService : Service() {
             }
         }
         if (fgResult.isFailure) {
-            instance = null
+            android.util.Log.w("PlaybackService", "Unable to enter foreground", fgResult.exceptionOrNull())
+            currentInstance.value = null
             stopSelf()
+        } else {
+            currentInstance.value = this
         }
     }
 
+    private fun toggleFavorite() {
+        val app = application as? MusicApplication
+        val song = app?.playbackSnapshot?.song
+        if (song == null) {
+            sendBroadcast(Intent(ACTION_TOGGLE_FAVORITE).setPackage(packageName))
+            return
+        }
+        val store = app.localMusicStore
+        if (store.isFavorite(song)) store.removeFavorite(song) else store.addFavorite(song)
+        updateFavoriteState(store.isFavorite(song))
+        sendBroadcast(Intent(ACTION_FAVORITE_CHANGED).setPackage(packageName))
+    }
+
+    private fun toggleFloatingLyrics() {
+        val app = application as? MusicApplication ?: return
+        val settings = app.appSettingsManager
+        if (settings.settings.value.floatingLyricsEnabled) {
+            settings.update { copy(floatingLyricsEnabled = false) }
+            return
+        }
+        if (!Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, R.string.floating_lyrics_need_permission, Toast.LENGTH_SHORT).show()
+            try {
+                startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            } catch (_: Exception) {
+            }
+            return
+        }
+        settings.update { copy(floatingLyricsEnabled = true) }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP_AND_EXIT) {
+            val app = application as? MusicApplication
+            try { app?.mediaPlayer?.stop() } catch (_: Exception) { }
+            try { app?.floatingLyricsManager?.clearLyric() } catch (_: Exception) { }
+            sendBroadcast(Intent(ACTION_STOP_AND_EXIT).setPackage(packageName))
+            stopSelf()
+            return START_NOT_STICKY
+        }
         // 每次 startForegroundService() 都会启动系统计时器，必须响应 startForeground()
         runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -140,7 +202,8 @@ class PlaybackService : Service() {
                 startForeground(NOTIFICATION_ID, buildNotification())
             }
         }.onFailure {
-            instance = null
+            android.util.Log.w("PlaybackService", "Unable to enter foreground", it)
+            currentInstance.value = null
             stopSelf()
         }
         return START_NOT_STICKY
@@ -149,7 +212,8 @@ class PlaybackService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        instance = null
+        currentInstance.value = null
+        stopForeground(true)
         if (::mediaSession.isInitialized) {
             mediaSession.isActive = false
             mediaSession.release()
@@ -167,6 +231,9 @@ class PlaybackService : Service() {
         duration: Long,
         coverBitmap: Bitmap? = null
     ) {
+        if (currentTitle == title && currentArtist == artist && currentAlbum == album &&
+            currentDuration == duration && currentCoverBitmap === coverBitmap
+        ) return
         currentTitle = title
         currentArtist = artist
         currentAlbum = album
@@ -197,7 +264,7 @@ class PlaybackService : Service() {
         if (lyricChanged || mediaSessionChanged) {
             publishMetadata()
         }
-        if (lyricChanged || meizuChanged) {
+        if (meizuChanged || (pushMeizuStatusBarLyrics && lyricChanged)) {
             updateNotification()
         }
     }
@@ -206,14 +273,12 @@ class PlaybackService : Service() {
         if (currentIsFavorite == isFavorite) return
         currentIsFavorite = isFavorite
         applyPlaybackState()
-        updateNotification()
     }
 
     fun updateFloatingLyricsState(enabled: Boolean) {
         if (floatingLyricsEnabled == enabled) return
         floatingLyricsEnabled = enabled
         applyPlaybackState()
-        updateNotification()
     }
 
     private fun publishMetadata() {
@@ -277,7 +342,7 @@ class PlaybackService : Service() {
         currentSpeed = speed
         lastPlaybackPosition = position
         applyPlaybackState()
-        // 仅在播放/暂停状态切换时更新通知（避免每200ms重建）
+        // 仅在播放状态或倍速变化时更新通知（避免每200ms重建）
         if (stateChanged) {
             updateNotification()
         }
@@ -362,29 +427,29 @@ class PlaybackService : Service() {
             Intent(ACTION_PREV).setPackage(packageName),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val stopAndExitIntent = PendingIntent.getBroadcast(
+        val stopAndExitIntent = PendingIntent.getService(
             this, 4,
-            Intent(ACTION_STOP_AND_EXIT).setPackage(packageName),
+            Intent(this, PlaybackService::class.java).setAction(ACTION_STOP_AND_EXIT),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val playPauseIcon = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
-        val playPauseLabel = if (isPlaying) "暂停" else "播放"
+        val playPauseLabel = getString(if (isPlaying) R.string.pause else R.string.play)
         val stopAndExitLabel = getString(R.string.stop_and_exit_app)
 
         // 收藏键、桌面歌词键不在此处添加：小米灵动岛/媒体通知只读 PlaybackState 的
         // CustomAction（见 applyPlaybackState），Notification.addAction 在媒体模板下会被忽略。
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(currentTitle.ifEmpty { "坤音" })
-            .setContentText(currentArtist.ifEmpty { "未在播放" })
+            .setContentTitle(currentTitle.ifEmpty { getString(R.string.app_name) })
+            .setContentText(currentArtist.ifEmpty { getString(R.string.no_song_playing) })
             .setSmallIcon(R.drawable.ic_music_note)
             .setLargeIcon(currentCoverBitmap)
             .setContentIntent(contentIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(isPlaying)
-            .addAction(R.drawable.ic_skip_prev, "上一首", prevIntent)
+            .addAction(R.drawable.ic_skip_prev, getString(R.string.previous), prevIntent)
             .addAction(playPauseIcon, playPauseLabel, playPauseIntent)
-            .addAction(R.drawable.ic_skip_next, "下一首", nextIntent)
+            .addAction(R.drawable.ic_skip_next, getString(R.string.next), nextIntent)
             .addAction(R.drawable.ic_close, stopAndExitLabel, stopAndExitIntent)
             .setStyle(
                 MediaNotificationCompat.MediaStyle()

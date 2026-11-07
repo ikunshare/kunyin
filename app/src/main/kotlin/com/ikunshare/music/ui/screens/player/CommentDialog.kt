@@ -1,6 +1,5 @@
 package com.ikunshare.music.ui.screens.player
 
-import android.annotation.SuppressLint
 import com.ikunshare.music.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -18,7 +17,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,7 +43,6 @@ internal fun commentRows(comments: List<CommentItem>): List<CommentRow> {
     }
 }
 
-@SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
 internal fun CommentDialog(song: MusicItem?, viewModel: CommentsViewModel, onDismiss: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
@@ -56,9 +53,9 @@ internal fun CommentDialog(song: MusicItem?, viewModel: CommentsViewModel, onDis
     LaunchedEffect(song?.uniqueKey, state.hotSelected, active.revision) { listState.scrollToItem(0) }
     val rows = remember(active.comments) { commentRows(active.comments) }
     val brokenAvatars = remember(song?.uniqueKey) { mutableStateMapOf<String, Boolean>() }
-    val dialogHeight = (LocalConfiguration.current.screenHeightDp.dp * 0.82f).coerceAtMost(640.dp)
     GlassDialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         BoxWithConstraints(Modifier.widthIn(max = 752.dp).fillMaxWidth().safeDrawingPadding().padding(16.dp), contentAlignment = Alignment.Center) {
+            val dialogHeight = (maxHeight * 0.82f).coerceAtMost(640.dp)
             Box(Modifier.widthIn(max = 720.dp).fillMaxWidth().height(dialogHeight).glassDialogSurface(24.dp)) {
                 Column(Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

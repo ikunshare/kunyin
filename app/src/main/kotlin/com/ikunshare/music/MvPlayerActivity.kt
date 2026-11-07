@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.util.Rational
 import android.view.View
 import android.view.WindowInsets
@@ -27,13 +28,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Forward10
@@ -53,13 +56,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,12 +75,17 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.gson.Gson
 import com.ikunshare.music.model.MusicItem
 import com.ikunshare.music.platform.base.MvQuality
+import com.ikunshare.music.ui.utils.onPointerCancel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -133,18 +144,13 @@ class MvPlayerActivity : AppCompatActivity() {
         runCatching { enterPictureInPictureMode(params) }
     }
 
-    override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig)
-        // configChanges keeps this activity alive across fold/unfold; re-evaluate the screen class.
-        OrientationPolicy.apply(this)
-    }
-
     override fun onPictureInPictureModeChanged(
         isInPictureInPictureMode: Boolean,
         newConfig: Configuration
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         pipMode.value = isInPictureInPictureMode
+        if (!isInPictureInPictureMode) enterImmersive()
     }
 
     override fun onUserLeaveHint() {
@@ -241,6 +247,7 @@ private fun MvPlayerContent(
     var pendingSeekMs by remember { mutableIntStateOf(0) }
 
     var isPlaying by remember { mutableStateOf(true) }
+    var resumeAfterRetry by remember { mutableStateOf(true) }
     var prepared by remember { mutableStateOf(false) }
     var hasError by remember { mutableStateOf(false) }
     var duration by remember { mutableIntStateOf(0) }
@@ -251,8 +258,37 @@ private fun MvPlayerContent(
     var qualityMenuExpanded by remember { mutableStateOf(false) }
     var switchingQuality by remember { mutableStateOf(false) }
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentPipMode by rememberUpdatedState(inPipMode)
+    DisposableEffect(lifecycleOwner, videoView) {
+        val view = videoView ?: return@DisposableEffect onDispose { }
+        var resumeOnStart = false
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> if (!currentPipMode) {
+                    resumeOnStart = view.isPlaying
+                    view.pause()
+                    isPlaying = false
+                }
+                Lifecycle.Event.ON_START -> {
+                    if (resumeOnStart) {
+                        view.start()
+                        isPlaying = true
+                        resumeOnStart = false
+                    }
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            view.stopPlayback()
+        }
+    }
+
     LaunchedEffect(prepared, isPlaying) {
-        while (prepared) {
+        while (prepared && isPlaying) {
             if (!userSeeking) currentPos = videoView?.currentPosition ?: 0
             delay(500.milliseconds)
         }
@@ -301,18 +337,25 @@ private fun MvPlayerContent(
         pendingSeekMs = currentPos
         Toast.makeText(context, R.string.mv_quality_switching, Toast.LENGTH_SHORT).show()
         scope.launch {
-            val result = withContext(Dispatchers.IO) { provider.getMvUrl(song, q.quality) }
-            switchingQuality = false
-            if (!result.playUrl.isNullOrBlank()) {
-                currentQuality = q.quality
-                currentUrl = result.playUrl
-                isPlaying = true
-            } else {
-                Toast.makeText(
-                    context,
-                    result.rejectReason ?: context.getString(R.string.mv_play_failed),
-                    Toast.LENGTH_SHORT
-                ).show()
+            try {
+                val result = withContext(Dispatchers.IO) { provider.getMvUrl(song, q.quality) }
+                if (!result.playUrl.isNullOrBlank()) {
+                    currentQuality = q.quality
+                    currentUrl = result.playUrl
+                } else {
+                    Toast.makeText(
+                        context,
+                        result.rejectReason ?: context.getString(R.string.mv_play_failed),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                Log.w("MvPlayer", "Failed to switch MV quality", e)
+                Toast.makeText(context, R.string.mv_play_failed, Toast.LENGTH_SHORT).show()
+            } finally {
+                switchingQuality = false
             }
         }
     }
@@ -346,6 +389,10 @@ private fun MvPlayerContent(
                         controlsVisible = true
                     }
                     setOnErrorListener { _, _, _ ->
+                        resumeAfterRetry = isPlaying
+                        prepared = false
+                        isPlaying = false
+                        controlsVisible = true
                         hasError = true
                         true
                     }
@@ -363,11 +410,23 @@ private fun MvPlayerContent(
             )
         }
         if (hasError) {
-            Text(
-                stringResource(R.string.mv_play_failed),
-                color = Color.White,
-                modifier = Modifier.align(Alignment.Center)
-            )
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(stringResource(R.string.mv_play_failed), color = Color.White)
+                TextButton(
+                    onClick = {
+                        pendingSeekMs = currentPos
+                        prepared = false
+                        hasError = false
+                        isPlaying = resumeAfterRetry
+                        videoView?.setVideoURI(currentUrl.toUri())
+                    }
+                ) {
+                    Text(stringResource(R.string.retry), color = Color.White)
+                }
+            }
         }
 
         AnimatedVisibility(
@@ -382,6 +441,7 @@ private fun MvPlayerContent(
                 currentQuality = currentQuality,
                 expanded = qualityMenuExpanded,
                 canSwitch = song != null && sourceTag != null && qualities.isNotEmpty(),
+                switchingQuality = switchingQuality,
                 pipSupported = pipSupported,
                 onEnterPip = onEnterPip,
                 onExpandedChange = {
@@ -417,6 +477,10 @@ private fun MvPlayerContent(
                 onSeekFinished = {
                     videoView?.seekTo(currentPos)
                     userSeeking = false
+                },
+                onSeekCancel = {
+                    currentPos = videoView?.currentPosition ?: currentPos
+                    userSeeking = false
                 }
             )
         }
@@ -430,6 +494,7 @@ private fun TopBar(
     currentQuality: String?,
     expanded: Boolean,
     canSwitch: Boolean,
+    switchingQuality: Boolean,
     pipSupported: Boolean,
     onEnterPip: () -> Unit,
     onExpandedChange: (Boolean) -> Unit,
@@ -444,14 +509,16 @@ private fun TopBar(
                     listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)
                 )
             )
-            .statusBarsPadding()
+            .windowInsetsPadding(
+                androidx.compose.foundation.layout.WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)
+            )
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(onClick = onClose) {
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = null,
+                contentDescription = stringResource(R.string.back),
                 tint = Color.White
             )
         }
@@ -461,6 +528,7 @@ private fun TopBar(
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .weight(1f)
                 .padding(horizontal = 8.dp)
@@ -480,6 +548,7 @@ private fun TopBar(
                     qualities.firstOrNull { it.quality == currentQuality }?.displayName
                 AssistChip(
                     onClick = { onExpandedChange(true) },
+                    enabled = !switchingQuality,
                     label = {
                         Text(
                             currentName ?: stringResource(R.string.mv_change_quality),
@@ -539,7 +608,8 @@ private fun BottomBar(
     onSeekForward: () -> Unit,
     onSeekStart: () -> Unit,
     onSeekChange: (Int) -> Unit,
-    onSeekFinished: () -> Unit
+    onSeekFinished: () -> Unit,
+    onSeekCancel: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -549,7 +619,9 @@ private fun BottomBar(
                     listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))
                 )
             )
-            .navigationBarsPadding()
+            .windowInsetsPadding(
+                androidx.compose.foundation.layout.WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
+            )
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Row(
@@ -576,6 +648,7 @@ private fun BottomBar(
                 ),
                 modifier = Modifier
                     .weight(1f)
+                    .onPointerCancel(onSeekCancel)
                     .padding(horizontal = 12.dp)
             )
             Text(
@@ -594,7 +667,7 @@ private fun BottomBar(
             IconButton(onClick = onSeekBack) {
                 Icon(
                     Icons.Filled.Replay10,
-                    contentDescription = null,
+                    contentDescription = stringResource(R.string.seek_back_10_seconds),
                     tint = Color.White,
                     modifier = Modifier.size(32.dp)
                 )
@@ -603,7 +676,7 @@ private fun BottomBar(
             IconButton(onClick = onTogglePlay, modifier = Modifier.size(56.dp)) {
                 Icon(
                     if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = null,
+                    contentDescription = stringResource(if (isPlaying) R.string.pause else R.string.play),
                     tint = Color.White,
                     modifier = Modifier.size(48.dp)
                 )
@@ -612,7 +685,7 @@ private fun BottomBar(
             IconButton(onClick = onSeekForward) {
                 Icon(
                     Icons.Filled.Forward10,
-                    contentDescription = null,
+                    contentDescription = stringResource(R.string.seek_forward_10_seconds),
                     tint = Color.White,
                     modifier = Modifier.size(32.dp)
                 )

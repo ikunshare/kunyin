@@ -3,6 +3,8 @@ package com.ikunshare.music.manager
 import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.PixelFormat
+import android.graphics.Rect
+import android.os.Build
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.view.Gravity
@@ -10,6 +12,7 @@ import android.view.WindowManager
 import com.ikunshare.music.common.AppSettings
 import com.ikunshare.music.common.AppSettingsManager
 import com.ikunshare.music.model.LyricLine
+import com.ikunshare.music.service.PlaybackService
 import com.ikunshare.music.ui.FloatingLyricsView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +37,16 @@ class FloatingLyricsManager(
     private var view: FloatingLyricsView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var isShowing = false
+    private var appliedSettings: AppSettings? = null
+
+    private data class LyricState(
+        val line: LyricLine?,
+        val position: Long,
+        val playing: Boolean,
+        val playbackRate: Float,
+    )
+
+    private var lyricState = LyricState(null, 0L, false, 1f)
 
     // 记忆浮窗位置（持久化到 SharedPreferences）
     private var savedX = prefs.getInt("floating_lyrics_x", Int.MIN_VALUE)
@@ -41,18 +54,18 @@ class FloatingLyricsManager(
 
     init {
         scope.launch {
-            appSettingsManager.settings
-                .collect { settings ->
-                    if (settings.floatingLyricsEnabled && hasOverlayPermission()) {
-                        if (!isShowing) {
-                            show(settings)
-                        } else {
-                            updateViewSettings(settings)
-                        }
-                    } else if (!settings.floatingLyricsEnabled && isShowing) {
-                        hide()
-                    }
-                }
+            appSettingsManager.settings.collect { refresh() }
+        }
+    }
+
+    fun refresh() {
+        val settings = appSettingsManager.settings.value
+        PlaybackService.getInstance()?.updateFloatingLyricsState(settings.floatingLyricsEnabled)
+        if (settings.floatingLyricsEnabled && hasOverlayPermission()) {
+            if (!isShowing) show(settings)
+            else if (settings != appliedSettings) updateViewSettings(settings)
+        } else if (isShowing) {
+            hide()
         }
     }
 
@@ -109,16 +122,28 @@ class FloatingLyricsManager(
             y = savedY
         }
         layoutParams = params
+        constrainWindowPosition(params)
 
         // 拖拽回调（解锁时）
         if (!settings.floatingLyricsLocked) {
             setupDragCallback(floatingView, params)
         }
+        floatingView.onDisplayConfigurationChanged = {
+            if (isShowing) updateViewSettings(appSettingsManager.settings.value)
+        }
 
         try {
             windowManager.addView(floatingView, params)
             isShowing = true
+            appliedSettings = settings
+            val state = lyricState
+            floatingView.updateLyricData(state.line, state.position, state.playing, state.playbackRate)
+            updateWindowHeight()
         } catch (_: Exception) {
+            runCatching { windowManager.removeView(floatingView) }
+            floatingView.release()
+            isShowing = false
+            appliedSettings = null
             view = null
             layoutParams = null
         }
@@ -126,16 +151,19 @@ class FloatingLyricsManager(
 
     private fun hide() {
         if (!isShowing) return
+        layoutParams?.let(::constrainWindowPosition)
         view?.let { v ->
-            v.release()
             try {
                 windowManager.removeView(v)
             } catch (_: Exception) {
+            } finally {
+                v.release()
             }
         }
         view = null
         layoutParams = null
         isShowing = false
+        appliedSettings = null
     }
 
     private fun updateViewSettings(settings: AppSettings) {
@@ -171,25 +199,29 @@ class FloatingLyricsManager(
             setupDragCallback(v, params)
         }
         params.flags = flags
+        constrainWindowPosition(params)
 
         // 宽度/配置变化后重新计算高度
         updateWindowHeight()
 
         try {
             windowManager.updateViewLayout(v, params)
+            appliedSettings = settings
         } catch (_: Exception) {
         }
     }
 
-    fun updateLyricState(currentLine: LyricLine?, position: Long, isPlaying: Boolean) {
-        val v = view ?: return
-        v.updateLyricData(currentLine, position, isPlaying)
+    fun updateLyricState(
+        currentLine: LyricLine?, position: Long, isPlaying: Boolean, playbackRate: Float
+    ) {
+        lyricState = LyricState(currentLine, position, isPlaying, playbackRate)
+        view?.updateLyricData(currentLine, position, isPlaying, playbackRate)
         updateWindowHeight()
     }
 
     fun clearLyric() {
-        val v = view ?: return
-        v.updateLyricData(null, 0L, false)
+        lyricState = LyricState(null, 0L, false, 1f)
+        view?.updateLyricData(null, 0L, false, 1f)
         updateWindowHeight()
     }
 
@@ -202,6 +234,7 @@ class FloatingLyricsManager(
         val desiredHeight = v.computeDesiredHeight(params.width).coerceAtLeast(1)
         if (params.height != desiredHeight) {
             params.height = desiredHeight
+            constrainWindowPosition(params)
             try {
                 windowManager.updateViewLayout(v, params)
             } catch (_: Exception) {
@@ -209,40 +242,36 @@ class FloatingLyricsManager(
         }
     }
 
-    private fun setupDragCallback(v: FloatingLyricsView, params: WindowManager.LayoutParams) {
-        v.setDragCallback { dx, dy ->
-            val screenWidth = getScreenWidth()
-            val screenHeight = getScreenHeight()
-
-            // 计算新位置
-            var newX = params.x + dx.toInt()
-            var newY = params.y + dy.toInt()
-
-            // 边界限制：至少保留 50dp 可见区域
-            val minVisible = (50 * context.resources.displayMetrics.density).toInt()
-            val maxX = screenWidth - minVisible
-            val minX = -(params.width - minVisible)
-
-            // Y 轴：允许拖到状态栏上方（负值），但不完全拖出屏幕
-            val minY = -(params.height)
-            val maxY = screenHeight - minVisible
-
-            newX = newX.coerceIn(minX, maxX)
-            newY = newY.coerceIn(minY, maxY)
-
-            params.x = newX
-            params.y = newY
-            savedX = newX
-            savedY = newY
+    private fun constrainWindowPosition(params: WindowManager.LayoutParams, persist: Boolean = true) {
+        val bounds = getScreenBounds()
+        val minVisible = (50 * context.resources.displayMetrics.density).toInt()
+        val x = params.x.coerceIn(-(params.width - minVisible), bounds.width() - minVisible)
+        val y = params.y.coerceIn(-params.height, bounds.height() - minVisible)
+        params.x = x
+        params.y = y
+        if (persist && (savedX != x || savedY != y)) {
+            savedX = x
+            savedY = y
             prefs.edit()
-                .putInt("floating_lyrics_x", savedX)
-                .putInt("floating_lyrics_y", savedY)
+                .putInt("floating_lyrics_x", x)
+                .putInt("floating_lyrics_y", y)
                 .apply()
-            try {
-                windowManager.updateViewLayout(v, params)
-            } catch (_: Exception) {
-            }
         }
+    }
+
+    private fun setupDragCallback(v: FloatingLyricsView, params: WindowManager.LayoutParams) {
+        v.setDragCallback(
+            callback = { dx, dy ->
+                params.x += dx.toInt()
+                params.y += dy.toInt()
+                constrainWindowPosition(params, persist = false)
+                try {
+                    windowManager.updateViewLayout(v, params)
+                } catch (_: Exception) {
+                }
+            },
+            onFinished = { constrainWindowPosition(params) }
+        )
     }
 
     fun hasOverlayPermission(): Boolean {
@@ -253,17 +282,16 @@ class FloatingLyricsManager(
         hide()
     }
 
-    private fun getScreenWidth(): Int {
+    private fun getScreenBounds(): Rect {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return windowManager.currentWindowMetrics.bounds
+        }
         val metrics = DisplayMetrics()
         @Suppress("DEPRECATION")
         windowManager.defaultDisplay.getMetrics(metrics)
-        return metrics.widthPixels
+        return Rect(0, 0, metrics.widthPixels, metrics.heightPixels)
     }
 
-    private fun getScreenHeight(): Int {
-        val metrics = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        windowManager.defaultDisplay.getMetrics(metrics)
-        return metrics.heightPixels
-    }
+    private fun getScreenWidth() = getScreenBounds().width()
+    private fun getScreenHeight() = getScreenBounds().height()
 }

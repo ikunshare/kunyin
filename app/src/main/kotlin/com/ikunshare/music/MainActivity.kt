@@ -21,26 +21,24 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.StringRes
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -51,10 +49,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -92,6 +90,7 @@ import com.ikunshare.music.ui.components.rememberGlassDialogHost
 import com.ikunshare.music.ui.components.LiquidGlassSideNavBar
 import com.ikunshare.music.ui.components.NoticeDialog
 import com.ikunshare.music.ui.components.UpdateDialog
+import com.ikunshare.music.ui.components.bottomNavItems
 import com.ikunshare.music.ui.navigation.SoundNavHost
 import com.ikunshare.music.ui.navigation.TABS_ROUTE
 import com.ikunshare.music.ui.navigation.rememberTabSwitcher
@@ -111,24 +110,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.io.File
 
-/**
- * 底部导航栏项定义
- */
-data class BottomNavItem(
-    @param:StringRes val labelRes: Int,
-    val icon: ImageVector
-)
-
-/**
- * 底部导航栏项列表（顺序与 HorizontalPager 页码对应）
- */
-val bottomNavItems = listOf(
-    BottomNavItem(labelRes = R.string.nav_search, icon = Icons.Filled.Search),
-    BottomNavItem(labelRes = R.string.nav_playlists, icon = Icons.AutoMirrored.Filled.QueueMusic),
-    BottomNavItem(labelRes = R.string.nav_download, icon = Icons.Filled.Download),
-    BottomNavItem(labelRes = R.string.nav_settings, icon = Icons.Filled.Settings)
-)
-
+private const val STATE_PENDING_INSTALL_FILE = "pending_install_file"
+private const val STATE_ENABLE_FLOATING_LYRICS = "enable_floating_lyrics"
 
 class MainActivity : AppCompatActivity() {
 
@@ -141,6 +124,7 @@ class MainActivity : AppCompatActivity() {
                 PlaybackService.ACTION_NEXT -> playerViewModel.next()
                 PlaybackService.ACTION_PREV -> playerViewModel.previous()
                 PlaybackService.ACTION_TOGGLE_FAVORITE -> playerViewModel.toggleFavorite()
+                PlaybackService.ACTION_FAVORITE_CHANGED -> playerViewModel.refreshFavoriteState()
                 PlaybackService.ACTION_TOGGLE_FLOATING_LYRICS -> toggleFloatingLyrics()
                 PlaybackService.ACTION_STOP_AND_EXIT -> stopPlaybackAndExitApp()
                 PlaybackService.ACTION_SEEK_TO -> {
@@ -154,7 +138,8 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
-        // Before any content: a phone must never lay out (or flash) the app in landscape.
+        pendingInstallFile = savedInstanceState?.getString(STATE_PENDING_INSTALL_FILE)?.let(::File)
+        pendingFloatingLyricsEnable = savedInstanceState?.getBoolean(STATE_ENABLE_FLOATING_LYRICS) == true
         OrientationPolicy.apply(this)
         enableEdgeToEdge()
 
@@ -188,6 +173,10 @@ class MainActivity : AppCompatActivity() {
             override fun play() {
                 if (!playerViewModel.uiState.value.isPlaying) playerViewModel.togglePlayPause()
             }
+
+            override fun next() = playerViewModel.next()
+            override fun previous() = playerViewModel.previous()
+            override fun seekTo(positionMs: Long) = playerViewModel.seekTo(positionMs)
         }
 
         val filter = IntentFilter().apply {
@@ -195,6 +184,7 @@ class MainActivity : AppCompatActivity() {
             addAction(PlaybackService.ACTION_NEXT)
             addAction(PlaybackService.ACTION_PREV)
             addAction(PlaybackService.ACTION_TOGGLE_FAVORITE)
+            addAction(PlaybackService.ACTION_FAVORITE_CHANGED)
             addAction(PlaybackService.ACTION_TOGGLE_FLOATING_LYRICS)
             addAction(PlaybackService.ACTION_STOP_AND_EXIT)
             addAction(PlaybackService.ACTION_SEEK_TO)
@@ -207,25 +197,37 @@ class MainActivity : AppCompatActivity() {
         )
 
         lifecycleScope.launch {
-            var lastSongId: Long? = null
+            var lastSongKey: String? = null
+            var metadataInitialized = false
             var lastDuration = 0L
             var lastCoverBitmap: Bitmap? = null
-            var lastLyricText = ""
+            var lastLyricText: String? = null
             var lastPushMediaSessionLyrics =
                 app.appSettingsManager.settings.value.pushLyricsToMediaSession
             var lastPushMeizuStatusBarLyrics =
                 app.appSettingsManager.settings.value.pushMeizuStatusBarLyrics
-            var lastFavoriteState = false
+            var lastFavoriteState: Boolean? = null
             // 初始为 false，让首帧若实际开启则触发一次同步，保证通知图标与设置一致
             var lastFloatingLyricsState = false
             // combine 让设置开关变化也能实时驱动推送（不用等 uiState 下一帧）
             playerViewModel.uiState
                 .combine(app.appSettingsManager.settings) { state, settings -> state to settings }
-                .collect { (state, appSettings) ->
-                    val service = PlaybackService.getInstance() ?: return@collect
+                .combine(PlaybackService.instanceFlow) { stateAndSettings, service ->
+                    Triple(stateAndSettings.first, stateAndSettings.second, service)
+                }
+                .collect { (state, appSettings, service) ->
+                    if (service == null) {
+                        lastSongKey = null
+                        metadataInitialized = false
+                        lastDuration = 0L
+                        lastLyricText = null
+                        lastFavoriteState = null
+                        lastFloatingLyricsState = false
+                        return@collect
+                    }
 
-                    val songId = state.currentSong?.id
-                    val songChanged = songId != null && songId != lastSongId
+                    val songKey = state.currentSong?.uniqueKey
+                    val songChanged = songKey != null && songKey != lastSongKey
                     val durationChanged = state.duration > 0L && state.duration != lastDuration
                     val pushMediaSessionLyrics = appSettings.pushLyricsToMediaSession
                     val pushMeizuStatusBarLyrics = appSettings.pushMeizuStatusBarLyrics
@@ -234,14 +236,14 @@ class MainActivity : AppCompatActivity() {
                         pushMediaSessionLyrics != lastPushMediaSessionLyrics ||
                                 pushMeizuStatusBarLyrics != lastPushMeizuStatusBarLyrics
 
-                    if (songId != null && (songChanged || lyricChanged || pushConfigChanged)) {
+                    if (songKey != null && (songChanged || lyricChanged || pushConfigChanged)) {
                         service.updateLyricPush(
                             lyricText = state.currentLyricPushText,
                             pushToMediaSession = pushMediaSessionLyrics,
                             pushToMeizuStatusBar = pushMeizuStatusBarLyrics
                         )
                         lastLyricText = state.currentLyricPushText
-                    } else if (songId == null && (lastLyricText.isNotEmpty() || pushConfigChanged)) {
+                    } else if (songKey == null && (lastLyricText == null || lastLyricText?.isNotEmpty() == true || pushConfigChanged)) {
                         service.updateLyricPush(
                             lyricText = "",
                             pushToMediaSession = pushMediaSessionLyrics,
@@ -254,14 +256,10 @@ class MainActivity : AppCompatActivity() {
                         lastPushMeizuStatusBarLyrics = pushMeizuStatusBarLyrics
                     }
 
-                    if (songId != null) {
-                        if (state.isFavorite != lastFavoriteState) {
-                            service.updateFavoriteState(state.isFavorite)
-                            lastFavoriteState = state.isFavorite
-                        }
-                    } else if (lastFavoriteState) {
-                        service.updateFavoriteState(false)
-                        lastFavoriteState = false
+                    val favorite = state.currentSong != null && state.isFavorite
+                    if (favorite != lastFavoriteState) {
+                        service.updateFavoriteState(favorite)
+                        lastFavoriteState = favorite
                     }
 
                     if (appSettings.floatingLyricsEnabled != lastFloatingLyricsState) {
@@ -269,12 +267,19 @@ class MainActivity : AppCompatActivity() {
                         lastFloatingLyricsState = appSettings.floatingLyricsEnabled
                     }
 
-                    if (songId != null && (songChanged || durationChanged)) {
+                    if (songKey == null && (!metadataInitialized || lastSongKey != null)) {
+                        lastSongKey = null
+                        lastDuration = 0L
+                        lastCoverBitmap = null
+                        service.updateMetadata("", "", "", 0L, null)
+                        metadataInitialized = true
+                    }
+                    if (songKey != null && (songChanged || durationChanged)) {
                         val song = state.currentSong
                         if (songChanged) {
                             lastCoverBitmap = loadCoverBitmap(song.cover)
                         }
-                        lastSongId = songId
+                        lastSongKey = songKey
                         lastDuration = state.duration
                         service.updateMetadata(
                             title = song.title,
@@ -283,6 +288,7 @@ class MainActivity : AppCompatActivity() {
                             duration = state.duration,
                             coverBitmap = lastCoverBitmap
                         )
+                        metadataInitialized = true
                     }
                 }
         }
@@ -290,10 +296,13 @@ class MainActivity : AppCompatActivity() {
         // MediaSession 播放进度同步：监听内部高频进度流，让系统通知/锁屏/车载等的进度条不再卡顿
         lifecycleScope.launch {
             playerViewModel.currentPosition
-                .combine(playerViewModel.uiState) { position, state -> position to state.isPlaying }
+                .combine(playerViewModel.uiState) { position, state ->
+                    Triple(position, state.isPlaying, state.playbackSpeed)
+                }
+                .combine(PlaybackService.instanceFlow) { playback, service -> playback to service }
                 .distinctUntilChanged()
-                .collect { (position, isPlaying) ->
-                    PlaybackService.getInstance()?.updatePlaybackState(isPlaying, position)
+                .collect { (playback, service) ->
+                    service?.updatePlaybackState(playback.second, playback.first, playback.third)
                 }
         }
 
@@ -314,7 +323,8 @@ class MainActivity : AppCompatActivity() {
 
             // 公告检查
             var noticeContent by remember { mutableStateOf<NoticeInfo?>(null) }
-            LaunchedEffect(Unit) {
+            LaunchedEffect(eulaAccepted) {
+                if (!eulaAccepted) return@LaunchedEffect
                 val apiUrl = NoticeManager.NOTICE_API_URL
                 if (apiUrl.isNotBlank()) {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -342,13 +352,14 @@ class MainActivity : AppCompatActivity() {
             // 更新检查
             var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
             var downloadProgress by remember { mutableStateOf<Float?>(null) }
-            var downloadFailed by remember { mutableStateOf(false) }
+            var downloadFailed by updateDownloadFailed
             val scope = rememberCoroutineScope()
 
-            LaunchedEffect(Unit) {
+            LaunchedEffect(eulaAccepted) {
+                if (!eulaAccepted) return@LaunchedEffect
                 val info = app.updateChecker.check()
                 if (info != null && info.hasUpdate) {
-                    if (info.isCompulsory || !app.updateChecker.isVersionSkipped(info.title)) {
+                    if (info.isCompulsory || !app.updateChecker.isVersionSkipped(info.version)) {
                         updateInfo = info
                     }
                 }
@@ -423,8 +434,8 @@ class MainActivity : AppCompatActivity() {
                     appSettingsManager = app.appSettingsManager
                 )
 
-                // 公告弹窗
-                noticeContent?.let { info ->
+                // 更新优先，处理完成后再显示公告，避免两个 Dialog 叠加。
+                if (updateInfo == null) noticeContent?.let { info ->
                     NoticeDialog(
                         content = info.content,
                         onDismiss = { noticeContent = null }
@@ -437,12 +448,13 @@ class MainActivity : AppCompatActivity() {
                         updateInfo = info,
                         onDismiss = { updateInfo = null },
                         onSkipVersion = {
-                            app.updateChecker.skipVersion(info.title)
+                            app.updateChecker.skipVersion(info.version)
                             updateInfo = null
                         },
                         onExitApp = { finish() },
                         onDownload = {
                             scope.launch {
+                                if (downloadProgress != null && !downloadFailed) return@launch
                                 downloadProgress = 0f
                                 downloadFailed = false
                                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -496,7 +508,26 @@ class MainActivity : AppCompatActivity() {
             } else {
                 startService(Intent(this, PlaybackService::class.java))
             }
+        }.onFailure {
+            android.util.Log.w("MainActivity", "Unable to start playback service", it)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!pendingFloatingLyricsEnable) return
+        pendingFloatingLyricsEnable = false
+        if (Settings.canDrawOverlays(this)) {
+            val app = application as MusicApplication
+            app.appSettingsManager.update { copy(floatingLyricsEnabled = true) }
+            app.floatingLyricsManager.refresh()
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(STATE_PENDING_INSTALL_FILE, pendingInstallFile?.path)
+        outState.putBoolean(STATE_ENABLE_FLOATING_LYRICS, pendingFloatingLyricsEnable)
     }
 
     override fun onDestroy() {
@@ -520,16 +551,17 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * 通知/灵动岛的"桌面歌词"功能键：切换悬浮歌词开关。
-     * 无悬浮窗权限时引导用户去系统授权页，不静默失败。
+     * 仅在开启且没有权限时引导到系统授权页，关闭不需要权限。
      */
     private fun toggleFloatingLyrics() {
         val app = application as MusicApplication
-        if (!Settings.canDrawOverlays(this)) {
+        if (!Settings.canDrawOverlays(this) && !app.appSettingsManager.settings.value.floatingLyricsEnabled) {
             Toast.makeText(
                 this,
                 getString(R.string.floating_lyrics_need_permission),
                 Toast.LENGTH_SHORT
             ).show()
+            pendingFloatingLyricsEnable = true
             try {
                 startActivity(
                     Intent(
@@ -537,7 +569,9 @@ class MainActivity : AppCompatActivity() {
                         Uri.parse("package:$packageName")
                     ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 )
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                pendingFloatingLyricsEnable = false
+                android.util.Log.w("MainActivity", "Unable to open overlay permission settings", e)
             }
             return
         }
@@ -554,6 +588,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var pendingInstallFile: File? = null
+    private var pendingFloatingLyricsEnable = false
+    private val updateDownloadFailed = mutableStateOf(false)
+
+    private val installApkLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        updateDownloadFailed.value = true
+    }
 
     private val installPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -561,6 +603,8 @@ class MainActivity : AppCompatActivity() {
         pendingInstallFile?.let { file ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && packageManager.canRequestPackageInstalls()) {
                 doInstallApk(file)
+            } else {
+                updateDownloadFailed.value = true
             }
             pendingInstallFile = null
         }
@@ -568,24 +612,37 @@ class MainActivity : AppCompatActivity() {
 
     fun installApk(file: File) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
-            pendingInstallFile = file
-            val intent = Intent(
-                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                "package:$packageName".toUri()
-            )
-            installPermissionLauncher.launch(intent)
+            try {
+                pendingInstallFile = file
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    "package:$packageName".toUri()
+                )
+                installPermissionLauncher.launch(intent)
+            } catch (e: Exception) {
+                pendingInstallFile = null
+                android.util.Log.e("MainActivity", "Unable to launch install permission settings", e)
+                updateDownloadFailed.value = true
+                Toast.makeText(this, R.string.install_failed, Toast.LENGTH_SHORT).show()
+            }
         } else {
             doInstallApk(file)
         }
     }
 
     private fun doInstallApk(file: File) {
-        val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
-        val intent = Intent(ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+        try {
+            val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
+            val intent = Intent(ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+            }
+            installApkLauncher.launch(intent)
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Unable to launch package installer", e)
+            updateDownloadFailed.value = true
+            Toast.makeText(this, R.string.install_failed, Toast.LENGTH_SHORT).show()
         }
-        startActivity(intent)
     }
 
     private suspend fun loadCoverBitmap(url: String?): Bitmap? {
@@ -594,6 +651,8 @@ class MainActivity : AppCompatActivity() {
             val request = ImageRequest.Builder(this).data(url).allowHardware(false).build()
             val result = imageLoader.execute(request)
             (result as? SuccessResult)?.image?.toBitmap()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             null
         }
@@ -640,18 +699,25 @@ fun KunSoundApp(
 
     // 启动时请求存储和通知权限
     val context = LocalContext.current
-    val smallestScreenWidthDp = LocalConfiguration.current.smallestScreenWidthDp
-
-    // 小屏设备（含播放页）一律竖屏；宽屏设备不限制方向。折叠屏展开/合上时重新判定。
     val playerSheet = rememberPlayerSheetState()
-    DisposableEffect(smallestScreenWidthDp, context) {
-        (context as? Activity)?.let(OrientationPolicy::apply)
-        onDispose { }
-    }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { /* 权限结果不阻塞 UI，下载时再次检查 */ }
+    ) { /* 权限结果不阻塞 UI */ }
+    val requestNotificationPermission: () -> Unit = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+    val storagePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { requestNotificationPermission() }
+    val storageSettingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { requestNotificationPermission() }
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -662,36 +728,35 @@ fun KunSoundApp(
                         Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
                             data = "package:${context.packageName}".toUri()
                         }
-                    context.startActivity(intent)
+                    storageSettingsLauncher.launch(intent)
                 } catch (_: Exception) {
-                    context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                    try {
+                        storageSettingsLauncher.launch(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                    } catch (e: Exception) {
+                        android.util.Log.w("MainActivity", "Unable to open storage permission settings", e)
+                        Toast.makeText(context, R.string.storage_settings_failed, Toast.LENGTH_SHORT).show()
+                        requestNotificationPermission()
+                    }
                 }
+            } else {
+                requestNotificationPermission()
             }
-        } else {
+        } else if (ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
             // Android 10 以下: 请求传统存储权限
-            if (ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.WRITE_EXTERNAL_STORAGE
-                )
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            }
-        }
-
-        // Android 13+: 请求通知权限
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
+            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else {
+            requestNotificationPermission()
         }
     }
 
     // 后台播放需要关闭电池优化：每次启动都检查，未授权就请求。
     // 等界面真正处于前台（没有文件权限页 / 通知权限框挡在前面）再弹，避免几个系统页面叠在一起。
     LifecycleResumeEffect(context) {
+        (context.applicationContext as? MusicApplication)?.floatingLyricsManager?.refresh()
         val activity = context as? Activity
         val job = activity?.let {
             (it as? AppCompatActivity)?.lifecycleScope?.launch {
@@ -718,8 +783,10 @@ fun KunSoundApp(
     val isOnTabs = currentRoute == TABS_ROUTE
     val showBottomNav =
         isOnTabs || currentRoute?.startsWith("album/") == true || currentRoute?.startsWith("artist/") == true
+    val bottomNavVisible = showBottomNav && !isWideScreen
     // The player sheet covers the mini player; keeping it shown lets a dismiss reveal it.
     val showMiniPlayer = hasSong
+    val bottomBarInset = with(LocalDensity.current) { WindowInsets.safeDrawing.getBottom(this).toDp() }
 
     // 滚动状态管理：跟踪底部栏紧凑模式
     var isCompactMode by remember { mutableStateOf(false) }
@@ -732,7 +799,7 @@ fun KunSoundApp(
     // 逻辑：到顶部强制退出紧凑模式；使用进入/退出双阈值减少边界抖动
     val reportScrollOffset: (Int, Int, Boolean) -> Unit = remember {
         fun(firstVisibleItemIndex: Int, firstVisibleItemScrollOffset: Int, isScrollingUp: Boolean) {
-            val currentTime = System.currentTimeMillis()
+            val currentTime = System.nanoTime() / 1_000_000L
             val isAtTop = firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset == 0
             val effectiveOffset = if (firstVisibleItemIndex > 0) {
                 compactEnterThresholdPx + firstVisibleItemScrollOffset + 1
@@ -827,17 +894,19 @@ fun KunSoundApp(
         CompositionLocalProvider(
             com.ikunshare.music.ui.components.LocalSongListOperationsVisible provides appSettings.showListOperationButtons,
             LocalScrollOffsetReporter provides reportScrollOffset,
+            // Constant even in compact mode: if the reserve shrank when the bar morphs
+            // into its pill, the clamped scroll offset would read as "back at top",
+            // exit compact mode, and the two states would oscillate (flicker) near the
+            // bottom of short lists like settings sections.
             LocalFloatingBottomBarReserve provides when {
-                showBottomNav && showMiniPlayer && !isCompactMode -> 152.dp
-                showBottomNav && !isCompactMode -> 88.dp
-                showMiniPlayer -> 88.dp
+                bottomNavVisible && showMiniPlayer -> 152.dp + bottomBarInset
+                bottomNavVisible || showMiniPlayer -> 88.dp + bottomBarInset
                 else -> 0.dp
             }
         ) {
             val bottomBar: @Composable () -> Unit = {
                 if (showBottomNav || showMiniPlayer) {
                     LiquidGlassBottomBar(
-                        navController = navController,
                         isOnTabs = showBottomNav,
                         showMiniPlayer = showMiniPlayer,
                         playerViewModel = playerViewModel,
@@ -848,7 +917,8 @@ fun KunSoundApp(
                         onExitCompactMode = { isCompactMode = false },
                         isCompactMode = isCompactMode,
                         backdrop = backdrop,
-                        isWideScreen = isWideScreen
+                        isWideScreen = isWideScreen,
+                        hasSideNav = isWideScreen && isOnTabs
                     )
                 }
             }
@@ -856,6 +926,9 @@ fun KunSoundApp(
             if (isWideScreen) {
                 // 宽屏：左侧竖向导航 + 右侧内容（底部仍有 MiniPlayer）
                 Scaffold(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
                     containerColor = if (hasBgImage) Color.Transparent else MaterialTheme.colorScheme.background,
                     bottomBar = bottomBar
                 ) { _ ->
@@ -884,6 +957,9 @@ fun KunSoundApp(
             } else {
                 // 窄屏：内容铺满，悬浮底栏盖在内容之上，由 LocalFloatingBottomBarReserve 负责避让
                 Scaffold(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
                     containerColor = if (hasBgImage) Color.Transparent else MaterialTheme.colorScheme.background,
                     bottomBar = bottomBar
                 ) { _ ->

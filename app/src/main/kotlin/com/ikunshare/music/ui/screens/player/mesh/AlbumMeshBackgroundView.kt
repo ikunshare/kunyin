@@ -315,6 +315,27 @@ private class AlbumMeshRenderer {
         }
     }
 
+    fun onSurfaceDestroyed() {
+        pendingAlbum = null
+        meshStates.forEach { it.mesh.dispose(); it.texture.dispose() }
+        meshStates.clear()
+        if (fbo != 0) GLES20.glDeleteFramebuffers(1, intArrayOf(fbo), 0)
+        if (fboTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(fboTexture), 0)
+        if (quadBuffer != 0) GLES20.glDeleteBuffers(1, intArrayOf(quadBuffer), 0)
+        mainProgram?.dispose()
+        quadProgram?.dispose()
+        fbo = 0
+        fboTexture = 0
+        quadBuffer = 0
+        mainProgram = null
+        quadProgram = null
+        surfaceWidth = 0
+        surfaceHeight = 0
+        renderWidth = 0
+        renderHeight = 0
+        lastFrameNanos = 0L
+    }
+
     companion object {
         private fun clamp01(x: Float) = if (x < 0f) 0f else if (x > 1f) 1f else x
         private fun easeInOutSine(x: Float) = (-(cos(Math.PI * x) - 1) / 2).toFloat()
@@ -450,12 +471,26 @@ private class MeshRenderThread(
     @Volatile private var width = 0
     @Volatile private var height = 0
     @Volatile private var sizeDirty = true
+    private val stopLock = Any()
+    private var stopped = false
+    private var releaseSurfaceOnStop = false
 
     fun setSize(w: Int, h: Int) {
         width = w; height = h; sizeDirty = true
     }
 
-    fun requestStop() { running = false }
+    fun requestStop() {
+        running = false
+        interrupt()
+    }
+
+    fun releaseSurfaceOnStop() {
+        synchronized(stopLock) {
+            if (stopped) surface.release()
+            else releaseSurfaceOnStop = true
+        }
+    }
+
     fun setPaused(p: Boolean) { paused = p }
 
     override fun run() {
@@ -504,16 +539,26 @@ private class MeshRenderThread(
                     sleep(16)
                 }
             }
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
         } catch (e: Exception) {
             Log.w("MeshBgGL", "render thread error", e)
         } finally {
-            if (display != EGL14.EGL_NO_DISPLAY) {
-                EGL14.eglMakeCurrent(
-                    display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT
-                )
-                if (eglSurface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, eglSurface)
-                if (context != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(display, context)
-                EGL14.eglTerminate(display)
+            try {
+                if (context != EGL14.EGL_NO_CONTEXT) renderer.onSurfaceDestroyed()
+            } finally {
+                if (display != EGL14.EGL_NO_DISPLAY) {
+                    EGL14.eglMakeCurrent(
+                        display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT
+                    )
+                    if (eglSurface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, eglSurface)
+                    if (context != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(display, context)
+                    EGL14.eglTerminate(display)
+                }
+                synchronized(stopLock) {
+                    stopped = true
+                    if (releaseSurfaceOnStop) surface.release()
+                }
             }
         }
     }
@@ -522,6 +567,7 @@ private class MeshRenderThread(
 class AlbumMeshBackgroundView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
     private val meshRenderer = AlbumMeshRenderer()
     private var renderThread: MeshRenderThread? = null
+    private var paused = false
     private var lastBitmap: Bitmap? = null
     private var lastKey: String = ""
 
@@ -549,18 +595,30 @@ class AlbumMeshBackgroundView(context: Context) : TextureView(context), TextureV
     }
 
     fun onPause() {
+        paused = true
         renderThread?.setPaused(true)
     }
 
     fun onResume() {
+        paused = false
         renderThread?.setPaused(false)
     }
 
     override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
+        renderThread?.let { previous ->
+            previous.requestStop()
+            try {
+                previous.join()
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return
+            }
+        }
         val thread = MeshRenderThread(st, meshRenderer)
         thread.setSize(width, height)
-        thread.start()
+        thread.setPaused(paused)
         renderThread = thread
+        thread.start()
         // 上下文重建后重新提交当前封面，以便渲染器重建网格。
         lastBitmap?.let { if (!it.isRecycled) meshRenderer.setAlbum(it, lastKey) }
     }
@@ -570,13 +628,11 @@ class AlbumMeshBackgroundView(context: Context) : TextureView(context), TextureV
     }
 
     override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
-        renderThread?.requestStop()
-        try {
-            renderThread?.join(500)
-        } catch (_: InterruptedException) {
-        }
+        val thread = renderThread ?: return true
         renderThread = null
-        return true
+        thread.releaseSurfaceOnStop()
+        thread.requestStop()
+        return false
     }
 
     override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
@@ -613,6 +669,11 @@ internal fun AlbumMeshBackground(
                 Lifecycle.Event.ON_RESUME -> view?.onResume()
                 else -> Unit
             }
+        }
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            view?.onResume()
+        } else {
+            view?.onPause()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {

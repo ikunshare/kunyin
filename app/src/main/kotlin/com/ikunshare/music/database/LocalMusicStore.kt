@@ -3,6 +3,7 @@ package com.ikunshare.music.database
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import android.util.Log
 import com.google.gson.JsonParser
 import com.ikunshare.music.model.MusicItem
 import kotlinx.coroutines.CoroutineScope
@@ -25,7 +26,11 @@ import kotlinx.coroutines.NonCancellable
 class LocalMusicStore(context: Context) {
 
     private val db = MusicDatabase(context)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + kotlinx.coroutines.CoroutineExceptionHandler { _, error ->
+            Log.e("LocalMusicStore", "Background playlist write failed", error)
+        }
+    )
     private val trialWriteMutex = Mutex()
 
     private val _playlistsFlow = MutableStateFlow<List<Playlist>>(emptyList())
@@ -358,6 +363,7 @@ class LocalMusicStore(context: Context) {
         require(snapshot.isNotEmpty()) { "Cannot replace a playlist with an unavailable remote list" }
         return withContext(Dispatchers.IO) {
             initialization.join()
+            val previousKeys = queryPlaylistSongs(playlistId).mapTo(HashSet()) { it.uniqueKey }
             val wdb = db.writableDatabase
             val count: Int
             wdb.beginTransaction()
@@ -373,6 +379,10 @@ class LocalMusicStore(context: Context) {
                 wdb.setTransactionSuccessful()
             } finally {
                 wdb.endTransaction()
+            }
+            val removed = previousKeys - snapshot.mapTo(HashSet()) { it.uniqueKey }
+            if (removed.isNotEmpty()) {
+                withContext(NonCancellable) { _removedPlaylistSongs.emit(removed) }
             }
             bumpPlaylistSongsRevision(playlistId)
             refreshPlaylists()
@@ -539,14 +549,21 @@ class LocalMusicStore(context: Context) {
             }
             val removed = entries.indexOfFirst { it.first == item.storageId && it.second == source }
             if (removed < 0) return@launch
+            val clampedPos = newPosition.coerceIn(0, entries.size - 1)
+            if (clampedPos == removed) return@launch
             val entry = entries.removeAt(removed)
-            val clampedPos = newPosition.coerceIn(0, entries.size)
             entries.add(clampedPos, entry)
-            entries.forEachIndexed { idx, (sid, src, _) ->
-                wdb.execSQL(
-                    "UPDATE ${MusicDatabase.TABLE_PLAYLIST_SONGS} SET ${MusicDatabase.COL_POSITION} = ? WHERE ${MusicDatabase.COL_PLAYLIST_ID} = ? AND ${MusicDatabase.COL_SONG_ID} = ? AND ${MusicDatabase.COL_SOURCE} = ?",
-                    arrayOf<Any>(idx, playlistId, sid, src)
-                )
+            wdb.beginTransaction()
+            try {
+                entries.forEachIndexed { idx, (sid, src, _) ->
+                    wdb.execSQL(
+                        "UPDATE ${MusicDatabase.TABLE_PLAYLIST_SONGS} SET ${MusicDatabase.COL_POSITION} = ? WHERE ${MusicDatabase.COL_PLAYLIST_ID} = ? AND ${MusicDatabase.COL_SONG_ID} = ? AND ${MusicDatabase.COL_SOURCE} = ?",
+                        arrayOf<Any>(idx, playlistId, sid, src)
+                    )
+                }
+                wdb.setTransactionSuccessful()
+            } finally {
+                wdb.endTransaction()
             }
             bumpPlaylistSongsRevision(playlistId)
             refreshPlaylists()
@@ -985,13 +1002,21 @@ class LocalMusicStore(context: Context) {
         }
         val idx = entries.indexOfFirst { it.first == songId && it.second == source }
         if (idx < 0) return
+        val clampedPos = targetPos.coerceIn(0, entries.size - 1)
+        if (clampedPos == idx) return
         val entry = entries.removeAt(idx)
-        entries.add(targetPos.coerceIn(0, entries.size), entry)
-        entries.forEachIndexed { i, (sid, src) ->
-            wdb.execSQL(
-                "UPDATE ${MusicDatabase.TABLE_PLAYLIST_SONGS} SET ${MusicDatabase.COL_POSITION} = ? WHERE ${MusicDatabase.COL_PLAYLIST_ID} = ? AND ${MusicDatabase.COL_SONG_ID} = ? AND ${MusicDatabase.COL_SOURCE} = ?",
-                arrayOf<Any>(i, playlistId, sid, src)
-            )
+        entries.add(clampedPos, entry)
+        wdb.beginTransaction()
+        try {
+            entries.forEachIndexed { i, (sid, src) ->
+                wdb.execSQL(
+                    "UPDATE ${MusicDatabase.TABLE_PLAYLIST_SONGS} SET ${MusicDatabase.COL_POSITION} = ? WHERE ${MusicDatabase.COL_PLAYLIST_ID} = ? AND ${MusicDatabase.COL_SONG_ID} = ? AND ${MusicDatabase.COL_SOURCE} = ?",
+                    arrayOf<Any>(i, playlistId, sid, src)
+                )
+            }
+            wdb.setTransactionSuccessful()
+        } finally {
+            wdb.endTransaction()
         }
         bumpPlaylistSongsRevision(playlistId)
     }

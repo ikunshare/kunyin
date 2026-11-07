@@ -115,8 +115,10 @@ private suspend fun requestDiscoveryList(request: DiscoveryListRequest): JsonEle
 private fun JsonElement.obj() = takeIf { isJsonObject }?.asJsonObject
 private fun JsonObject.objectAt(key: String) = get(key)?.obj()
 private fun JsonObject.count(key: String) = chartText(key).toDoubleOrNull()?.takeIf { it.isFinite() }?.coerceIn(0.0, Int.MAX_VALUE.toDouble())?.toInt() ?: 0
+private val playCountRegex = Regex("^([\\d.]+)\\s*(亿|万|w|W)?")
+
 internal fun discoveryPlayCount(value: String): Long {
-    val match = Regex("^([\\d.]+)\\s*(亿|万|w|W)?").find(value.trim()) ?: return 0
+    val match = playCountRegex.find(value.trim()) ?: return 0
     val count = match.groupValues[1].toDoubleOrNull()?.takeIf { it.isFinite() } ?: return 0
     val multiplier = when (match.groupValues[2]) { "亿" -> 1e8; "万", "w", "W" -> 1e4; else -> 1.0 }
     return (count * multiplier).roundToLong().coerceAtLeast(0)
@@ -145,7 +147,7 @@ internal fun playlistRows(source: String, rows: JsonElement?): List<PlayListInfo
 
 internal fun parseDiscoveryPlaylists(q: PlaylistPageQuery, json: JsonElement, kgInfo: KgListInfo = KgListInfo(), recommend: List<PlayListInfoResult> = emptyList()): PlaylistSearchResult {
     if (isKuwoSection(q)) {
-        check(json.isJsonArray && json.asJsonArray.size() > 0)
+        check(json.isJsonArray)
         val rows = com.google.gson.JsonArray()
         arrayObjects(json).flatMap { arrayObjects(it.get("list")) }.filter { it.chartText("type") in listOf("songlist", "list") }.forEach { rows.add(it) }
         return PlaylistSearchResult(q.source, false, q.page, q.size, playlistRows("kw", rows))

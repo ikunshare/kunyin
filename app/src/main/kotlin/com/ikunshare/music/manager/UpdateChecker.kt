@@ -3,7 +3,11 @@ package com.ikunshare.music.manager
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -23,7 +27,8 @@ data class UpdateInfo(
     val shareUrl: String,
     val isCompulsory: Boolean,
     /** 新版本 APK 的 MD5，下载完成后校验；为空则跳过校验 */
-    val fileMd5: String
+    val fileMd5: String,
+    val version: String = ""
 )
 
 /**
@@ -93,7 +98,8 @@ class UpdateChecker(context: Context) {
             downloadUrl = downloadUrl,
             shareUrl = shareUrl.ifBlank { downloadUrl },
             isCompulsory = data.optString("compulsory") == "yes",
-            fileMd5 = data.optString("file_md5")
+            fileMd5 = data.optString("file_md5"),
+            version = data.optString("version").ifBlank { data.optString("update_title") }
         )
     }
 
@@ -111,7 +117,7 @@ class UpdateChecker(context: Context) {
      * @param onProgress 进度回调 (0f ~ 1f)
      * @return 下载成功的文件，或 null（下载失败或校验不通过）
      */
-    fun downloadApk(
+    suspend fun downloadApk(
         info: UpdateInfo,
         cacheDir: File,
         onProgress: (Float) -> Unit
@@ -122,28 +128,37 @@ class UpdateChecker(context: Context) {
         return try {
             val digest = MessageDigest.getInstance("MD5")
             val request = Request.Builder().url(info.downloadUrl).build()
-            downloadClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
+            val call = downloadClient.newCall(request)
+            val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion { cause ->
+                if (cause is CancellationException) call.cancel()
+            }
+            try {
+                call.execute().use { response ->
+                    if (!response.isSuccessful) return null
 
-                val body = response.body
-                val contentLength = body.contentLength()
-                val inputStream = body.byteStream()
+                    val body = response.body
+                    val contentLength = body.contentLength()
+                    val inputStream = body.byteStream()
 
-                FileOutputStream(outputFile).use { fos ->
-                    val buffer = ByteArray(8192)
-                    var bytesRead: Int
-                    var totalRead = 0L
+                    FileOutputStream(outputFile).use { fos ->
+                        val buffer = ByteArray(8192)
+                        var bytesRead: Int
+                        var totalRead = 0L
 
-                    while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                        fos.write(buffer, 0, bytesRead)
-                        digest.update(buffer, 0, bytesRead)
-                        totalRead += bytesRead
-                        if (contentLength > 0) {
-                            onProgress((totalRead.toFloat() / contentLength).coerceIn(0f, 1f))
+                        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                            currentCoroutineContext().ensureActive()
+                            fos.write(buffer, 0, bytesRead)
+                            digest.update(buffer, 0, bytesRead)
+                            totalRead += bytesRead
+                            if (contentLength > 0) {
+                                onProgress((totalRead.toFloat() / contentLength).coerceIn(0f, 1f))
+                            }
                         }
+                        fos.flush()
                     }
-                    fos.flush()
                 }
+            } finally {
+                cancellationHandle.dispose()
             }
 
             val fileMd5 = digest.digest().toHex()
@@ -153,6 +168,9 @@ class UpdateChecker(context: Context) {
                 outputFile.delete()
                 null
             }
+        } catch (cancelled: CancellationException) {
+            outputFile.delete()
+            throw cancelled
         } catch (_: Exception) {
             outputFile.delete()
             null

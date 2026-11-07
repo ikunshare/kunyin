@@ -29,6 +29,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -42,6 +43,8 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.ikunshare.music.R
 import com.ikunshare.music.model.MusicItem
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 enum class RedirectPlatform(val source: String, val display: String) {
@@ -100,11 +103,21 @@ fun SongRedirectDialog(
     var kgSelected by remember { mutableStateOf<KgLyricCandidateUi?>(null) }
 
     val scope = rememberCoroutineScope()
+    var requestGeneration by remember { mutableLongStateOf(0L) }
+    var requestJob by remember { mutableStateOf<Job?>(null) }
+    fun cancelRequest() {
+        requestGeneration++
+        requestJob?.cancel()
+        requestJob = null
+        loading = false
+    }
+
     val emptyMsg = stringResource(R.string.redirect_input_empty)
     val notFoundMsg = stringResource(R.string.redirect_lookup_failed)
     val isKg = platform == RedirectPlatform.KG
 
     LaunchedEffect(platform, qqUseMid) {
+        cancelRequest()
         preview = null
         error = null
         kgCandidates = emptyList()
@@ -117,7 +130,7 @@ fun SongRedirectDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.redirect_song_title)) },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
                     text = stringResource(R.string.redirect_song_message),
                     style = MaterialTheme.typography.bodyMedium,
@@ -179,6 +192,7 @@ fun SongRedirectDialog(
                     OutlinedTextField(
                         value = kgKeyword,
                         onValueChange = {
+                            cancelRequest()
                             kgKeyword = it
                             kgCandidates = emptyList()
                             kgSelected = null
@@ -192,6 +206,7 @@ fun SongRedirectDialog(
                     OutlinedTextField(
                         value = input,
                         onValueChange = {
+                            cancelRequest()
                             input = it
                             preview = null
                             error = null
@@ -227,12 +242,20 @@ fun SongRedirectDialog(
                                     return@AssistChip
                                 }
                                 if (kgLyricSearch == null) return@AssistChip
+                                cancelRequest()
                                 kgCandidates = emptyList()
                                 kgSelected = null
                                 loading = true
-                                scope.launch {
-                                    val res = runCatching { kgLyricSearch(kw) }
-                                        .getOrDefault(emptyList())
+                                val generation = requestGeneration
+                                requestJob = scope.launch {
+                                    val res = try {
+                                        kgLyricSearch(kw)
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (_: Exception) {
+                                        emptyList()
+                                    }
+                                    if (generation != requestGeneration) return@launch
                                     loading = false
                                     if (res.isEmpty()) error = notFoundMsg
                                     else kgCandidates = res
@@ -243,14 +266,21 @@ fun SongRedirectDialog(
                                     error = emptyMsg
                                     return@AssistChip
                                 }
+                                cancelRequest()
                                 preview = null
                                 loading = true
-                                scope.launch {
-                                    val key =
-                                        if (platform == RedirectPlatform.QQ && qqUseMid) "mid" else "id"
-                                    val result = runCatching {
-                                        lookup(platform.source, key, v)
-                                    }.getOrNull()
+                                val generation = requestGeneration
+                                val selectedPlatform = platform
+                                val key = if (selectedPlatform == RedirectPlatform.QQ && qqUseMid) "mid" else "id"
+                                requestJob = scope.launch {
+                                    val result = try {
+                                        lookup(selectedPlatform.source, key, v)
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (_: Exception) {
+                                        null
+                                    }
+                                    if (generation != requestGeneration) return@launch
                                     loading = false
                                     if (result == null) error = notFoundMsg
                                     else preview = result
@@ -369,21 +399,19 @@ fun SongRedirectDialog(
             }
         },
         dismissButton = {
-            Row {
-                if (currentRedirect != null) {
-                    TextButton(onClick = onClear) {
-                        Text(
-                            stringResource(R.string.redirect_clear),
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
-                TextButton(onClick = onDismiss) {
+            if (currentRedirect != null) {
+                TextButton(onClick = onClear) {
                     Text(
-                        stringResource(R.string.cancel),
-                        color = MaterialTheme.colorScheme.onBackground
+                        stringResource(R.string.redirect_clear),
+                        color = MaterialTheme.colorScheme.error
                     )
                 }
+            }
+            TextButton(onClick = onDismiss) {
+                Text(
+                    stringResource(R.string.cancel),
+                    color = MaterialTheme.colorScheme.onBackground
+                )
             }
         }
     )

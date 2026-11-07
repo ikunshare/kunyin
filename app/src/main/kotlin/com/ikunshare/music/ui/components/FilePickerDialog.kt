@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,8 +28,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -38,6 +39,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ikunshare.music.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -65,26 +68,21 @@ fun FilePickerDialog(
         )
     }
 
-    val folders by remember(currentDir) {
-        derivedStateOf {
-            currentDir.listFiles()
-                ?.filter { it.isDirectory && !it.name.startsWith(".") }
-                ?.sortedBy { it.name.lowercase() }
-                ?: emptyList()
+    val entries by produceState<FilePickerEntries?>(null, currentDir, exts) {
+        value = withContext(Dispatchers.IO) {
+            val children = currentDir.listFiles()?.toList().orEmpty()
+            FilePickerEntries(
+                folders = children.filter { it.isDirectory && !it.name.startsWith(".") }
+                    .sortedBy { it.name.lowercase() },
+                files = children.filter { file ->
+                    file.isFile && !file.name.startsWith(".") &&
+                        (exts.isEmpty() || exts.any { file.name.lowercase().endsWith(".$it") })
+                }.sortedBy { it.name.lowercase() }
+            )
         }
     }
-
-    val files by remember(currentDir, exts) {
-        derivedStateOf {
-            currentDir.listFiles()
-                ?.filter { f ->
-                    f.isFile && !f.name.startsWith(".") &&
-                            (exts.isEmpty() || exts.any { f.name.lowercase().endsWith(".$it") })
-                }
-                ?.sortedBy { it.name.lowercase() }
-                ?: emptyList()
-        }
-    }
+    val folders = entries?.folders.orEmpty()
+    val files = entries?.files.orEmpty()
 
     val canGoUp = currentDir.absolutePath != "/" && currentDir.absolutePath != rootPath
 
@@ -134,6 +132,10 @@ fun FilePickerDialog(
 
                 if (!currentDir.canRead()) {
                     EmptyHint(R.string.folder_unreadable, isError = true)
+                } else if (entries == null) {
+                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
                 } else if (folders.isEmpty() && files.isEmpty()) {
                     EmptyHint(R.string.no_matching_files, isError = false)
                 } else {
@@ -172,6 +174,11 @@ fun FilePickerDialog(
         }
     }
 }
+
+private data class FilePickerEntries(
+    val folders: List<File>,
+    val files: List<File>
+)
 
 @Composable
 private fun ColumnScope.EmptyHint(textRes: Int, isError: Boolean) {

@@ -84,10 +84,8 @@ fun SongInfoDialog(song: MusicItem, onDismiss: () -> Unit) {
             }
         },
         confirmButton = {
-            Row {
-                TextButton(onClick = { copy(songInfoText(fields)) }) { Text(stringResource(R.string.song_info_copy_text)) }
-                TextButton(onClick = { copy(songInfoJson(json)) }) { Text(stringResource(R.string.song_info_copy_json)) }
-            }
+            TextButton(onClick = { copy(songInfoText(fields)) }) { Text(stringResource(R.string.song_info_copy_text)) }
+            TextButton(onClick = { copy(songInfoJson(json)) }) { Text(stringResource(R.string.song_info_copy_json)) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) } })
 }

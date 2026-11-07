@@ -147,6 +147,9 @@ class MusicApplication : Application(), SingletonImageLoader.Factory {
         fun isPlaying(): Boolean
         fun pause()
         fun play()
+        fun next()
+        fun previous()
+        fun seekTo(positionMs: Long)
     }
 
     @Volatile

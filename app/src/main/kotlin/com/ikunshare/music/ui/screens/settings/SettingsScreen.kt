@@ -226,6 +226,8 @@ fun SettingsScreen(
     }
 }
 
+private val sectionGroups = SettingsSection.entries.groupBy(::sectionGroup)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WideSettingsLayout(
@@ -252,7 +254,7 @@ private fun WideSettingsLayout(
                 contentPadding = PaddingValues(start = 16.dp, top = 8.dp, bottom = bottomReserve + 24.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                SettingsSection.entries.groupBy(::sectionGroup).forEach { (group, sections) ->
+                sectionGroups.forEach { (group, sections) ->
                     item(key = "group_$group") { SettingsGroupHeading(stringResource(group)) }
                     items(sections, key = { it.name }) { section ->
                         SettingsSectionCard(
@@ -383,7 +385,7 @@ private fun NarrowSettingsLayout(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = bottomReserve + 24.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    SettingsSection.entries.groupBy(::sectionGroup).forEach { (group, sections) ->
+                    sectionGroups.forEach { (group, sections) ->
                         item(key = "group_$group") { SettingsGroupHeading(stringResource(group)) }
                         items(sections, key = { it.name }) { sec ->
                             SettingsSectionCard(

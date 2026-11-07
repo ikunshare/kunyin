@@ -87,19 +87,20 @@ class DecryptingMediaDataSource(
                     totalSize = meta.totalSize
                     chunkCount = meta.chunkCount
                     val dir = chunkDir!!
-                    val firstOk = File(dir, chunkFileName(0)).exists()
-                    val lastOk =
-                        chunkCount <= 1 || File(dir, chunkFileName(chunkCount - 1)).exists()
-                    if (firstOk && lastOk) {
+                    val filesComplete = chunkCount > 0 && (0 until chunkCount).all { index ->
+                        val file = File(dir, chunkFileName(index))
+                        file.exists() && file.length() == expectedChunkSize(index).toLong()
+                    }
+                    if (filesComplete) {
                         chunkStates = AtomicIntegerArray(chunkCount).also { states ->
-                            for (i in 0..chunkCount) states.set(i, STATE_DONE)
+                            for (i in 0 until chunkCount) states.set(i, STATE_DONE)
                         }
                         cacheHit = true
                         Log.d(TAG, "DecryptingDataSource: full cache hit, totalSize=$totalSize")
                     } else {
                         Log.w(
                             TAG,
-                            "DecryptingDataSource: stale complete marker, chunk files missing"
+                            "DecryptingDataSource: stale complete marker, chunk files missing or incomplete"
                         )
                         try {
                             File(dir, ".complete").delete()
@@ -118,14 +119,14 @@ class DecryptingMediaDataSource(
                     val states = AtomicIntegerArray(chunkCount)
                     chunkStates = states
                     val dir = chunkDir!!
-                    for (i in 0..chunkCount) {
+                    for (i in 0 until chunkCount) {
                         val chunkFile = File(dir, chunkFileName(i))
                         if (chunkFile.exists() && chunkFile.length() == expectedChunkSize(i).toLong()) {
                             states.set(i, STATE_DONE)
                         }
                     }
                     val firstIncomplete =
-                        (0..chunkCount).firstOrNull { states.get(it) != STATE_DONE }
+                        (0 until chunkCount).firstOrNull { states.get(it) != STATE_DONE }
                     if (firstIncomplete != null) {
                         startWorkerFrom(firstIncomplete)
                     } else {
@@ -296,6 +297,11 @@ class DecryptingMediaDataSource(
         val old = currentWorker
         if (old != null && old.isAlive) {
             old.shouldStop = true
+            try {
+                old.currentCall?.cancel()
+            } catch (_: Exception) {
+            }
+            old.interrupt()
         }
         val worker = DownloadWorker(chunkIndex)
         currentWorker = worker
@@ -325,7 +331,13 @@ class DecryptingMediaDataSource(
     }
 
     private fun finishChunk(index: Int, data: ByteArray, size: Int) {
-        if (closed) return // 防止截断或被丢弃的数据在 close 后意外落盘
+        if (closed) return
+        val states = chunkStates ?: throw IOException("Chunk state is not initialized")
+        if (index !in 0 until states.length()) throw IOException("Chunk index out of range: $index")
+        val expectedSize = expectedChunkSize(index)
+        if (size != expectedSize) {
+            throw IOException("Unexpected chunk size: index=$index, actual=$size, expected=$expectedSize")
+        }
 
         val dir = chunkDir ?: return
         try {
@@ -342,7 +354,7 @@ class DecryptingMediaDataSource(
             return
         }
 
-        val states = chunkStates ?: return
+        if (closed) return
         states.set(index, STATE_DONE)
         lock.withLock { chunkDone.signalAll() }
     }
@@ -461,44 +473,40 @@ class DecryptingMediaDataSource(
             val call = client.newCall(request)
             currentCall = call
 
-            val response = try {
-                call.execute()
-            } catch (e: IOException) {
-                if (!shouldStop && !closed) throw e
-                return
-            } finally {
-                currentCall = null // execute 返回后网络流处理阶段不再持有 call
-            }
+            try {
+                val response = call.execute()
+                response.use { resp ->
+                    if (resp.code == 200) {
+                        // 服务器不支持 Range，回退为流式处理整个文件
+                        rangeNotSupported = true
+                        handleFullResponse(resp)
+                        return
+                    }
+                    if (resp.code != 206) {
+                        throw IOException("Unexpected response code: ${resp.code}")
+                    }
 
-            response.use { resp ->
-                if (resp.code == 200) {
-                    // 服务器不支持 Range，回退为流式处理整个文件
-                    rangeNotSupported = true
-                    handleFullResponse(resp)
-                    return
-                }
-                if (resp.code != 206) {
-                    throw IOException("Unexpected response code: ${resp.code}")
-                }
-
-                // 解析 Content-Range 获取 totalSize
-                if (totalSize < 0) {
-                    val contentRange = resp.header("Content-Range") // bytes 0-xxx/TOTAL
-                    val total = contentRange?.substringAfter("/")?.toLongOrNull()
-                    if (total != null && total > 0) {
-                        initChunkInfo(total)
-                    } else {
-                        // 从 Content-Length 推断（不太可靠但作为后备）
-                        val cl = resp.body.contentLength()
-                        if (cl > 0 && fromChunk == 0) {
-                            initChunkInfo(cl)
+                    // 解析 Content-Range 获取 totalSize
+                    if (totalSize < 0) {
+                        val contentRange = resp.header("Content-Range") // bytes 0-xxx/TOTAL
+                        val total = contentRange?.substringAfter("/")?.toLongOrNull()
+                        if (total != null && total > 0) {
+                            initChunkInfo(total)
                         } else {
-                            throw IOException("Cannot determine file size")
+                            // 从 Content-Length 推断（不太可靠但作为后备）
+                            val cl = resp.body.contentLength()
+                            if (cl > 0 && fromChunk == 0) {
+                                initChunkInfo(cl)
+                            } else {
+                                throw IOException("Cannot determine file size")
+                            }
                         }
                     }
-                }
 
-                streamResponseToChunks(resp, fromChunk)
+                    streamResponseToChunks(resp, fromChunk)
+                }
+            } finally {
+                currentCall = null
             }
         }
 

@@ -186,7 +186,7 @@ fun PlayerSheetHost(
         val request = state.request
         if (state.isVisible && request != null) {
             PlayerSheetSurface(state, heightPx, corner, onDrag = { delta ->
-                if (heightPx > 0f) scope.launch {
+                if (heightPx > 0f) scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                     progress.snapTo((progress.value - delta / heightPx).coerceIn(0f, 1f))
                 }
             }, onDragStopped = { velocityPx ->

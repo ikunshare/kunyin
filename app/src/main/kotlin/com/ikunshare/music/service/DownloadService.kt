@@ -66,6 +66,7 @@ class DownloadService : Service() {
                 startForeground(NOTIFICATION_ID, buildNotification())
             }
         }.onFailure {
+            android.util.Log.w("DownloadService", "Unable to enter foreground", it)
             instance = null
             stopSelf()
         }
@@ -75,6 +76,7 @@ class DownloadService : Service() {
 
     override fun onDestroy() {
         instance = null
+        stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
 

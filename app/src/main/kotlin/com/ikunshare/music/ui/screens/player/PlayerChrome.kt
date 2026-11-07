@@ -8,7 +8,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -45,12 +44,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import com.ikunshare.music.model.PlayMode
 import com.ikunshare.music.model.neteaseCoverUrl
+import com.ikunshare.music.ui.utils.onPointerCancel
 import com.ikunshare.music.ui.screens.lyrics.LyricCredits
 import com.ikunshare.music.ui.screens.lyrics.LyricsUiState
 import com.ikunshare.music.ui.screens.lyrics.WebLyricsContent
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.lens
 import com.kyant.shapes.Capsule
 
 /** The desktop player adapted to actual available space rather than device orientation alone. */
@@ -61,7 +59,7 @@ internal fun AdaptivePlayer(
     onPlayPause: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit,
     onVolume: (Float) -> Unit, onSpeed: (Float) -> Unit, onMode: () -> Unit,
     onFavorite: () -> Unit, onMore: () -> Unit, onQuality: () -> Unit,
-    onQueue: () -> Unit, onTimer: () -> Unit, onOutput: () -> Unit,
+    onQueue: () -> Unit, onTimer: () -> Unit,
     onTranslation: () -> Unit, onRomanization: () -> Unit, onPhonetic: () -> Unit,
     onRetryLyrics: () -> Unit,
     initialLyricsVisible: Boolean = false,
@@ -69,19 +67,22 @@ internal fun AdaptivePlayer(
 ) {
     val pager = rememberPagerState(initialPage = if (initialLyricsVisible) 1 else 0, pageCount = { 2 })
     val density = LocalDensity.current
-    var portraitControlsHeight by remember(density) { mutableIntStateOf(with(density) { 264.dp.roundToPx() }) }
+    var portraitControlsHeight by remember(density) { mutableIntStateOf(with(density) { 208.dp.roundToPx() }) }
     // Stable insets: hiding the system bars while presented must not shift the layout.
     BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(PlayerInsets)) {
         val wide = maxWidth >= 600.dp && maxWidth > maxHeight
         val autoHideEnabled = !wide && pager.settledPage == 1 && !pager.isScrollInProgress
         val controls = rememberPlayerControlsVisibility(state.currentSong?.uniqueKey, keepControlsVisible, autoHideEnabled)
         val controlsVisible = !autoHideEnabled || controls.visible
+        val revealLabel = stringResource(R.string.show_playback_controls)
         val revealAction = if (controlsVisible) Modifier else Modifier.semantics {
-            onClick(label = "显示播放控件") { controls.show(); true }
+            onClick(label = revealLabel) { controls.show(); true }
         }
         // Portrait: leave room for the measured controls plus the title block below the cover.
         val portraitControls = with(density) { portraitControlsHeight.toDp() }
         val coverSize = (maxWidth - 72.dp).coerceAtMost((maxHeight - portraitControls - 120.dp).coerceAtLeast(112.dp))
+            .coerceAtLeast(0.dp)
+        val pageHeight = maxHeight
         Column(Modifier.fillMaxSize().playerControlsGestures(controls, autoHideEnabled).then(revealAction)
             .padding(horizontal = if (wide) 32.dp else 24.dp)) {
             if (wide) Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -102,13 +103,14 @@ internal fun AdaptivePlayer(
                             }
                         }
                         if (maxHeight >= WIDE_COVER_MIN_PANE_HEIGHT) {
-                            // The cover gets whatever height the title and controls leave, kept square,
-                            // so it can never push the controls out of the pane.
-                            Column(Modifier.widthIn(max = 380.dp).fillMaxSize().padding(vertical = 16.dp),
+                            val paneWidth = maxWidth
+                            val paneHeight = maxHeight
+                            Column(Modifier.fillMaxSize().padding(vertical = 16.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally) {
                                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    PlayerCover(state.currentSong?.cover, Modifier.sizeIn(maxWidth = 320.dp, maxHeight = 320.dp)
-                                        .aspectRatio(1f, matchHeightConstraintsFirst = true))
+                                    PlayerCover(state.currentSong?.cover,
+                                        Modifier.sizeIn(maxWidth = paneWidth, maxHeight = paneHeight)
+                                            .aspectRatio(1f, matchHeightConstraintsFirst = true))
                                 }
                                 Spacer(Modifier.height(24.dp))
                                 PlayerTrackInfo(state, backdrop, onFavorite, onMore)
@@ -149,11 +151,15 @@ internal fun AdaptivePlayer(
                                     occludedBottomPx = if (controlsVisible) portraitControlsHeight else 0)
                             }
                         } else {
-                            Column(Modifier.fillMaxSize().padding(bottom = with(density) { portraitControlsHeight.toDp() })
+                            // Cover sits in the upper half: the space left after the cover and
+                            // title is split ~1:2 above and below instead of dead center.
+                            val coverTopGap = (pageHeight - portraitControls - coverSize - 84.dp)
+                                .times(0.32f).coerceAtLeast(8.dp)
+                            Column(Modifier.fillMaxSize().padding(bottom = portraitControls)
                                 .verticalScroll(rememberScrollState()),
-                                verticalArrangement = Arrangement.Center,
                                 horizontalAlignment = Alignment.CenterHorizontally) {
-                                PlayerCover(state.currentSong?.cover, Modifier.size(coverSize).padding(top = 8.dp))
+                                Spacer(Modifier.height(coverTopGap))
+                                PlayerCover(state.currentSong?.cover, Modifier.size(coverSize))
                                 Spacer(Modifier.height(24.dp))
                                 PlayerTrackInfo(state, backdrop, onFavorite, onMore)
                             }
@@ -202,15 +208,15 @@ private fun PlayerTrackInfo(state: PlayerUiState, backdrop: Backdrop, onFavorite
                             onMore: () -> Unit, compact: Boolean = false) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(state.currentSong?.title ?: "未在播放", color = Color.White,
-                fontSize = if (compact) 18.sp else 24.sp, fontWeight = FontWeight.SemiBold,
+            Text(state.currentSong?.title ?: stringResource(R.string.no_song_playing), color = Color.White,
+                fontSize = if (compact) 16.sp else 20.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
             Text(state.currentSong?.artist.orEmpty(), color = Color.White.copy(alpha = 0.58f),
-                fontSize = if (compact) 13.sp else 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                fontSize = if (compact) 12.sp else 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         PlayerIcon(if (state.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
             stringResource(R.string.favorite), backdrop, selected = state.isFavorite, onClick = onFavorite)
-        PlayerIcon(Icons.Default.MoreHoriz, "更多", backdrop, onClick = onMore)
+        PlayerIcon(Icons.Default.MoreHoriz, stringResource(R.string.more_actions), backdrop, onClick = onMore)
     }
 }
 
@@ -223,14 +229,15 @@ private fun PlayerLyricsPane(lyrics: LyricsUiState, state: PlayerUiState, positi
             lyrics.isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color.White, modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
             }
-            lyrics.error != null -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center,
+            lyrics.error != null -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp), verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(lyrics.error, color = Color.White.copy(alpha = 0.65f))
                 TextButton(onClick = onRetry) { Text(stringResource(R.string.retry), color = Color.White) }
             }
             lyrics.parsedLyrics.isEmpty() -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp), verticalArrangement = Arrangement.Center) {
-                Text(if (lyrics.credits.isEmpty()) stringResource(R.string.no_lyrics) else "纯音乐，请欣赏",
+                Text(if (lyrics.credits.isEmpty()) stringResource(R.string.no_lyrics) else stringResource(R.string.instrumental),
                     color = Color.White.copy(alpha = 0.75f), fontSize = 20.sp)
                 LyricCredits(lyrics.credits)
             }
@@ -246,11 +253,10 @@ private fun PlayerLyricsPane(lyrics: LyricsUiState, state: PlayerUiState, positi
 @Composable
 private fun LyricLanguageButton(icon: ImageVector, label: String, selected: Boolean,
                                backdrop: Backdrop, onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.size(44.dp)
-        .semantics { this.selected = selected }
-        .then(if (selected) Modifier.playerGlass(backdrop, selected = true) else Modifier)) {
+    IconButton(onClick = onClick, modifier = Modifier.size(36.dp)
+        .semantics { this.selected = selected }) {
         Icon(icon, contentDescription = label,
-            tint = Color.White.copy(alpha = if (selected) 1f else 0.5f), modifier = Modifier.size(22.dp))
+            tint = Color.White.copy(alpha = if (selected) 1f else 0.5f), modifier = Modifier.size(20.dp))
     }
 }
 
@@ -264,24 +270,24 @@ private fun PlayerControls(state: PlayerUiState, lyrics: LyricsUiState, position
     onSpeedMenu: (Boolean) -> Unit) {
     var speedMenu by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().pointerInput(Unit) { detectTapGestures(onTap = { }) }
-        .padding(top = 12.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        .padding(top = 8.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         PlayerSeek(position, state.duration, state.currentSong?.uniqueKey, state.currentQuality?.name,
             state.availableQualities.isNotEmpty(), onSeek, onQuality)
-        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically,
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly) {
             PlayerIcon(Icons.Default.SkipPrevious, stringResource(R.string.previous), backdrop, onClick = onPrevious, large = true)
             IconButton(onClick = onPlayPause, enabled = state.currentSong != null,
-                modifier = Modifier.size(72.dp).playerGlass(backdrop, selected = true)) {
-                if (state.isLoading) CircularProgressIndicator(Modifier.size(28.dp), color = Color.White, strokeWidth = 2.dp)
+                modifier = Modifier.size(56.dp)) {
+                if (state.isLoading) CircularProgressIndicator(Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
                 else Icon(if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    stringResource(if (state.isPlaying) R.string.pause else R.string.play), tint = Color.White, modifier = Modifier.size(38.dp))
+                    stringResource(if (state.isPlaying) R.string.pause else R.string.play), tint = Color.White, modifier = Modifier.size(32.dp))
             }
             PlayerIcon(Icons.Default.SkipNext, stringResource(R.string.next), backdrop, onClick = onNext, large = true)
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.AutoMirrored.Filled.VolumeDown, "音量", tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(20.dp))
-            PlayerTrackSlider(state.volume, onVolume, Modifier.weight(1f).padding(horizontal = 10.dp))
-            Icon(Icons.AutoMirrored.Filled.VolumeUp, null, tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(20.dp))
+            Icon(Icons.AutoMirrored.Filled.VolumeDown, stringResource(R.string.volume), tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(18.dp))
+            PlayerTrackSlider(state.volume, onVolume, Modifier.weight(1f).padding(horizontal = 8.dp))
+            Icon(Icons.AutoMirrored.Filled.VolumeUp, null, tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(18.dp))
         }
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
             verticalArrangement = Arrangement.spacedBy(4.dp), maxItemsInEachRow = 6) {
@@ -295,7 +301,7 @@ private fun PlayerControls(state: PlayerUiState, lyrics: LyricsUiState, position
             PlayerIcon(modeIcon, state.playMode.label, backdrop, onClick = onMode,
                 selected = state.playMode != PlayMode.SEQUENTIAL)
             Box {
-                TextButton(onClick = { speedMenu = true; onSpeedMenu(true) }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(44.dp)) {
+                TextButton(onClick = { speedMenu = true; onSpeedMenu(true) }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(36.dp)) {
                     Text("${state.playbackSpeed}×", color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp)
                 }
                 DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false; onSpeedMenu(false) }) {
@@ -304,14 +310,14 @@ private fun PlayerControls(state: PlayerUiState, lyrics: LyricsUiState, position
                     }
                 }
             }
-            if (lyrics.hasTranslation) LyricLanguageButton(PlayerLyricIcons.Translation, "译文",
+            if (lyrics.hasTranslation) LyricLanguageButton(PlayerLyricIcons.Translation, stringResource(R.string.sub_line_translation),
                 lyrics.showTranslation, backdrop, onTranslation)
-            if (lyrics.hasRomanization) LyricLanguageButton(PlayerLyricIcons.Romanization, "音译",
+            if (lyrics.hasRomanization) LyricLanguageButton(PlayerLyricIcons.Romanization, stringResource(R.string.sub_line_romanization),
                 lyrics.showRomanization, backdrop, onRomanization)
-            if (lyrics.hasPhonetic) LyricLanguageButton(PlayerLyricIcons.Phonetic, "谐音",
+            if (lyrics.hasPhonetic) LyricLanguageButton(PlayerLyricIcons.Phonetic, stringResource(R.string.show_phonetic),
                 lyrics.showPhonetic, backdrop, onPhonetic)
-            PlayerIcon(Icons.Default.Timer, "定时停止", backdrop, selected = timer, onClick = onTimer)
-            PlayerIcon(Icons.AutoMirrored.Filled.QueueMusic, "播放队列", backdrop, onClick = onQueue)
+            PlayerIcon(Icons.Default.Timer, stringResource(R.string.sleep_timer), backdrop, selected = timer, onClick = onTimer)
+            PlayerIcon(Icons.AutoMirrored.Filled.QueueMusic, stringResource(R.string.play_queue), backdrop, onClick = onQueue)
         }
     }
 }
@@ -323,15 +329,18 @@ private fun PlayerSeek(position: Long, duration: Long, songKey: String?, quality
     val fraction = preview ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
     val shown = preview?.let { (it * duration).toLong() } ?: position
     Column {
-        PlayerTrackSlider(fraction, { preview = it }, Modifier.fillMaxWidth(), enabled = duration > 0,
-            onFinished = { preview?.let { onSeek((it * duration).toLong()) }; preview = null })
+        PlayerTrackSlider(
+            fraction, { preview = it },
+            Modifier.fillMaxWidth().onPointerCancel { preview = null },
+            enabled = duration > 0,
+            onFinished = { preview?.let { onSeek((it * duration).toLong()) }; preview = null }
+        )
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(formatDuration(shown), color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, modifier = Modifier.weight(1f))
-            if (hasQuality) Text(quality.orEmpty(), color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp,
-                modifier = Modifier.clip(Capsule()).background(Color.White.copy(alpha = 0.08f))
-                    .clickable(onClick = onQuality).padding(horizontal = 12.dp, vertical = 8.dp))
+            Text(formatDuration(shown), color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp, modifier = Modifier.weight(1f))
+            if (hasQuality) Text(quality.orEmpty(), color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp,
+                modifier = Modifier.clickable(onClick = onQuality).padding(horizontal = 8.dp, vertical = 4.dp))
             Text("-${formatDuration((duration - shown).coerceAtLeast(0L))}", color = Color.White.copy(alpha = 0.55f),
-                fontSize = 12.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                fontSize = 11.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
         }
     }
 }
@@ -341,7 +350,7 @@ private fun PlayerSeek(position: Long, duration: Long, songKey: String?, quality
 private fun PlayerTrackSlider(value: Float, onValueChange: (Float) -> Unit, modifier: Modifier,
                               enabled: Boolean = true, onFinished: (() -> Unit)? = null) {
     Slider(value = value, onValueChange = onValueChange, onValueChangeFinished = onFinished,
-        enabled = enabled, modifier = modifier.height(40.dp),
+        enabled = enabled, modifier = modifier.height(28.dp),
         thumb = { Box(Modifier.size(12.dp).clip(CircleShape).background(Color.White)) },
         track = { slider ->
             Box(Modifier.fillMaxWidth().height(4.dp).clip(Capsule()).background(Color.White.copy(alpha = 0.22f))) {
@@ -353,15 +362,8 @@ private fun PlayerTrackSlider(value: Float, onValueChange: (Float) -> Unit, modi
 @Composable
 private fun PlayerIcon(icon: ImageVector, label: String, backdrop: Backdrop, selected: Boolean = false,
                        onClick: () -> Unit, large: Boolean = false) {
-    IconButton(onClick = onClick, modifier = Modifier.size(if (large) 56.dp else 44.dp)
-        .then(if (selected || large) Modifier.playerGlass(backdrop, selected) else Modifier)) {
+    IconButton(onClick = onClick, modifier = Modifier.size(if (large) 44.dp else 36.dp)) {
         Icon(icon, label, tint = Color.White.copy(alpha = if (selected || large) 1f else 0.72f),
-            modifier = Modifier.size(if (large) 30.dp else 22.dp))
+            modifier = Modifier.size(if (large) 26.dp else 20.dp))
     }
 }
-
-private fun Modifier.playerGlass(backdrop: Backdrop, selected: Boolean = false): Modifier =
-    drawBackdrop(backdrop = backdrop, shape = { Capsule() },
-        effects = { lens(6.dp.toPx(), 12.dp.toPx()) }, shadow = null, highlight = null,
-        onDrawSurface = { drawRect(Color.White.copy(alpha = if (selected) 0.18f else 0.08f)) })
-        .border(0.5.dp, Color.White.copy(alpha = 0.16f), Capsule())
