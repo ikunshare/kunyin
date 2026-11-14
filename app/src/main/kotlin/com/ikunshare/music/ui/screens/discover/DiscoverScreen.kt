@@ -6,8 +6,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,7 +25,11 @@ import com.ikunshare.music.ui.utils.LocalFloatingBottomBarReserve
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DiscoverScreen(nav: NavController, factory: KunyinViewModelFactory) {
+fun DiscoverScreen(
+    nav: NavController,
+    factory: KunyinViewModelFactory,
+    header: (@Composable () -> Unit)? = null
+) {
     val vm: DiscoverViewModel = viewModel(factory = factory)
     val state by vm.uiState.collectAsState()
     val s = state.selection
@@ -42,28 +44,42 @@ fun DiscoverScreen(nav: NavController, factory: KunyinViewModelFactory) {
     LaunchedEffect(s) { grid.scrollToItem(0) }
     LiquidGlassScene {
         Scaffold(containerColor = Color.Transparent, topBar = {
-            GlassTopBar(title = { Text("发现歌单") }, navigationIcon = {
-                GlassIconButton(onClick = { nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
-            }, actions = { GlassIconButton(onClick = { nav.navigate(Screen.Charts.route) }) { Icon(Icons.Filled.Leaderboard, "排行榜") } })
+            // 标题与下方分段控件重复，这里只保留分段控件本身。
+            Column(Modifier.windowInsetsPadding(TopAppBarDefaults.windowInsets).padding(vertical = 6.dp)) {
+                header?.invoke()
+            }
         }) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // 来源 / 分类 / 排序压成一行紧凑胶囊，避免占用三行。
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Box(Modifier.weight(1f)) {
-                        GlassButton(onClick = { showSources = true }, modifier = Modifier.fillMaxWidth()) { Text(sources.first { it.first == s.source }.second, maxLines = 1) }
+                        GlassButton(onClick = { showSources = true }, modifier = Modifier.fillMaxWidth(), height = 36.dp) {
+                            Text(sources.firstOrNull { it.first == s.source }?.second.orEmpty(), maxLines = 1, style = MaterialTheme.typography.labelMedium)
+                        }
                         DropdownMenu(showSources, { showSources = false }) {
                             sources.forEach { (id, name) -> DropdownMenuItem(text = { Text(name) }, onClick = { showSources = false; vm.switchSource(id) }) }
                         }
                     }
-                    GlassButton(onClick = { showCategories = true }, modifier = Modifier.weight(1f)) {
-                        Text(state.categories.firstOrNull { it.id == s.category }?.name ?: if (s.category.isEmpty()) "全部分类" else s.category, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Box(Modifier.weight(1f)) {
+                        GlassButton(onClick = { showCategories = true }, modifier = Modifier.fillMaxWidth(), height = 36.dp) {
+                            Text(state.categories.firstOrNull { it.id == s.category }?.name ?: "全部分类", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium)
+                        }
                     }
-                }
-                Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    GlassButton(onClick = { showSorts = true }, enabled = s.category.isEmpty() || canSortDiscoveryCategory(s.source)) {
-                        Text("排序：${sorts.firstOrNull { it.id == s.order }?.name.orEmpty()}")
-                    }
-                    DropdownMenu(showSorts, { showSorts = false }) {
-                        sorts.forEach { sort -> DropdownMenuItem(text = { Text(sort.name) }, onClick = { showSorts = false; vm.switchOrder(sort.id) }) }
+                    Box(Modifier.weight(1f)) {
+                        GlassButton(
+                            onClick = { showSorts = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = s.category.isEmpty() || canSortDiscoveryCategory(s.source),
+                            height = 36.dp
+                        ) {
+                            Text(sorts.firstOrNull { it.id == s.order }?.name.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium)
+                        }
+                        DropdownMenu(showSorts, { showSorts = false }) {
+                            sorts.forEach { sort -> DropdownMenuItem(text = { Text(sort.name) }, onClick = { showSorts = false; vm.switchOrder(sort.id) }) }
+                        }
                     }
                 }
                 when {
@@ -77,13 +93,20 @@ fun DiscoverScreen(nav: NavController, factory: KunyinViewModelFactory) {
                                 nav.navigate(Screen.Playlist.createRoute(Uri.encode("${playlist.source}:${playlist.playListId}")))
                             })
                         }
+                        // 翻页放进网格末尾跟着滚动，不再常驻占位。
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                GlassButton(onClick = { vm.goToPage(s.page - 1) }, enabled = !state.loading && s.page > 0, height = 36.dp) { Text("上一页") }
+                                val count = if (state.total > 0) ((state.total.toLong() + state.pageSize - 1) / state.pageSize).coerceAtLeast(1) else null
+                                Text("第 ${s.page + 1} 页" + (count?.let { " / $it" } ?: ""), style = MaterialTheme.typography.labelMedium)
+                                GlassButton(onClick = { vm.goToPage(s.page + 1) }, enabled = !state.loading && state.hasNext, height = 36.dp) { Text("下一页") }
+                            }
+                        }
                     }
-                }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    GlassButton(onClick = { vm.goToPage(s.page - 1) }, enabled = !state.loading && s.page > 0) { Text("上一页") }
-                    val count = if (state.total > 0) ((state.total.toLong() + state.pageSize - 1) / state.pageSize).coerceAtLeast(1) else null
-                    Text("第 ${s.page + 1} 页" + (count?.let { " / $it" } ?: ""))
-                    GlassButton(onClick = { vm.goToPage(s.page + 1) }, enabled = !state.loading && state.hasNext) { Text("下一页") }
                 }
                 Spacer(Modifier.height(LocalFloatingBottomBarReserve.current))
             }

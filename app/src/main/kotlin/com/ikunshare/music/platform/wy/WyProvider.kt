@@ -4,6 +4,7 @@ import android.util.Log
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import com.ikunshare.music.MusicApplication
 import com.ikunshare.music.model.Lyric
 import com.ikunshare.music.model.MusicItem
 import com.ikunshare.music.model.UserInfo
@@ -60,6 +61,19 @@ class WyProvider : BaseProvider("wy") {
 
     /** 歌单全量 trackId 缓存：playlistId → 全部曲目 ID 列表 */
     private val playlistCache = mutableMapOf<String, List<Long>>()
+    private val listenReporter by lazy {
+        WyListenReporter(requireNotNull(MusicApplication.instance))
+    }
+
+    suspend fun reportPlayStart(song: NeteaseMusicItem, qualityId: String, sourceId: String?): Boolean =
+        listenReporter.playStart(getCreds<WyCredentials>()?.cookie, song, qualityId, sourceId)
+
+    suspend fun reportPlayEnd(
+        song: NeteaseMusicItem,
+        qualityId: String,
+        sourceId: String?,
+        playedSec: Long
+    ): Boolean = listenReporter.playEnd(getCreds<WyCredentials>()?.cookie, song, qualityId, sourceId, playedSec)
 
     /** 获取用户的 MUSIC_U（从完整 cookie 中提取） */
     private fun getMusicU(): String? {
@@ -69,7 +83,7 @@ class WyProvider : BaseProvider("wy") {
 
     /**
      * 批量获取高级音质信息，通过 eapi batch + "/" hack 调用 /api/song/music/detail/get
-     * jm → master, je → effect_plus, sk → effect
+     * jm → master, je → atmos_plus, sks/sk → atmos
      */
     private fun enrichWithAdvancedQualities(items: List<NeteaseMusicItem>): List<NeteaseMusicItem> {
         if (items.isEmpty()) return items
@@ -449,13 +463,9 @@ class WyProvider : BaseProvider("wy") {
     override fun getAlbumSongs(albumId: String): MusicListResult {
         val payload = fetchAlbumPayload(albumId)
             ?: return MusicListResult(source, false, 0, 100, emptyList())
-        val songs = payload.safeGetArray("songs")
-            ?: return MusicListResult(source, false, 0, 100, emptyList())
-        val items = songs.mapNotNull { el ->
-            if (el.isJsonObject) NeteaseMusicItem.parseTrackInfo(el.asJsonObject) else null
-        }
-        val enriched = enrichWithAdvancedQualities(items)
-        return MusicListResult(source, false, 0, enriched.size, enriched)
+        val parsed = parseWyAlbumSongs(payload.safeGetArray("songs"))
+        val enriched = enrichWithAdvancedQualities(parsed.result.filterIsInstance<NeteaseMusicItem>())
+        return parsed.copy(size = enriched.size, result = enriched)
     }
 
     // ===== 歌手搜索 =====

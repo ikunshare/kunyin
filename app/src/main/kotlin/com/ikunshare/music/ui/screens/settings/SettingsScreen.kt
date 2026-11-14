@@ -78,7 +78,7 @@ private val standardQualityOptions = listOf(
 
 private val aiQualityOptions = listOf(
     "atmos" to "臻品全景声（AI）",
-    "atmos_plus" to "臻品全景声 2.0（AI）",
+    "atmos_plus" to "高清臻音（AI）",
     "master" to "臻品母带（AI）"
 )
 
@@ -499,6 +499,9 @@ private fun PlaybackSection(
     SettingSwitchItem(stringResource(R.string.auto_play_on_restart), settings.autoPlayOnRestart) {
         vm.updateSettings { copy(autoPlayOnRestart = it) }
     }
+    SettingSwitchItem(stringResource(R.string.auto_skip_on_error), settings.autoSkipOnError) {
+        vm.updateSettings { copy(autoSkipOnError = it) }
+    }
     SettingSwitchItem(
         stringResource(R.string.trial_list_add_to_head),
         settings.trialListAddToHead
@@ -507,6 +510,9 @@ private fun PlaybackSection(
         stringResource(R.string.auto_open_player_on_song_click),
         settings.autoOpenPlayerOnSongClick
     ) { vm.updateSettings { copy(autoOpenPlayerOnSongClick = it) } }
+    SettingSwitchItem(stringResource(R.string.player_cover_rounded), settings.coverRounded) {
+        vm.updateSettings { copy(coverRounded = it) }
+    }
     DefaultQualitySelector(settings.defaultQualityId, settings.hideAiQualities) { id ->
         vm.updateSettings { copy(defaultQualityId = id) }
     }

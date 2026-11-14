@@ -34,7 +34,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -52,7 +51,9 @@ import com.ikunshare.music.model.QueueSource
 import com.ikunshare.music.platform.base.AlbumInfoResult
 import com.ikunshare.music.platform.base.AlbumDisc
 import com.ikunshare.music.ui.components.GlassSectionHeading
+import com.ikunshare.music.ui.utils.onPress
 import com.ikunshare.music.ui.utils.rememberPlaylistWriteActions
+import com.ikunshare.music.ui.utils.rememberSelectedKeys
 import com.ikunshare.music.ui.KunyinViewModelFactory
 import com.ikunshare.music.ui.components.AddToPlaylistDialog
 import com.ikunshare.music.ui.components.CreatePlaylistDialog
@@ -396,6 +397,7 @@ private fun AlbumBody(
     val playerUiState by playerViewModel.uiState.collectAsState()
     val currentSong = playerUiState.currentSong
     val listState = rememberLazyListState()
+    val selectedKeys by rememberSelectedKeys(selectedSongs)
     val sections = remember(songs, discs) { albumSections(songs, discs) }
 
     LazyColumn(
@@ -422,12 +424,9 @@ private fun AlbumBody(
             val density = LocalDensity.current
             Box(
                 modifier = Modifier.pointerInput(Unit) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            val event = awaitPointerEvent(PointerEventPass.Initial)
-                            event.changes.firstOrNull()?.let {
-                                menuOffset = with(density) { DpOffset(it.position.x.toDp(), 0.dp) }
-                            }
+                    onPress { event ->
+                        event.changes.firstOrNull()?.let {
+                            menuOffset = with(density) { DpOffset(it.position.x.toDp(), 0.dp) }
                         }
                     }
                 }
@@ -450,7 +449,7 @@ private fun AlbumBody(
                         }
                     },
                     selectionMode = selectionMode,
-                    selected = selectedSongs.any { it.uniqueKey == song.uniqueKey },
+                    selected = song.uniqueKey in selectedKeys,
                     isPlaying = currentSong?.uniqueKey == song.uniqueKey,
                     onLongClick = { onLongClick(song) },
                     onCheckedChange = { onToggleSelect(song) },

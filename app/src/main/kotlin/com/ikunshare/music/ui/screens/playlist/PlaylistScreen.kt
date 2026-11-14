@@ -54,7 +54,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -69,7 +68,9 @@ import com.ikunshare.music.R
 import com.ikunshare.music.model.MusicItem
 import com.ikunshare.music.model.QueueSource
 import com.ikunshare.music.platform.base.PlayListInfoResult
+import com.ikunshare.music.ui.utils.onPress
 import com.ikunshare.music.ui.utils.rememberPlaylistWriteActions
+import com.ikunshare.music.ui.utils.rememberSelectedKeys
 import com.ikunshare.music.ui.KunyinViewModelFactory
 import com.ikunshare.music.ui.components.AddToPlaylistDialog
 import com.ikunshare.music.ui.components.CreatePlaylistDialog
@@ -558,7 +559,7 @@ private fun NarrowPlaylistContent(
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
-    val selectedKeys by remember(selectedSongs) { derivedStateOf { selectedSongs.map { it.uniqueKey }.toHashSet() } }
+    val selectedKeys by rememberSelectedKeys(selectedSongs)
     val bottomReserve = LocalFloatingBottomBarReserve.current
 
     val shouldLoadMore by remember {
@@ -602,13 +603,10 @@ private fun NarrowPlaylistContent(
                 val density = LocalDensity.current
                 Box(
                     modifier = Modifier.pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                                event.changes.firstOrNull()?.let {
-                                    menuOffset =
-                                        with(density) { DpOffset(it.position.x.toDp(), 0.dp) }
-                                }
+                        onPress { event ->
+                            event.changes.firstOrNull()?.let {
+                                menuOffset =
+                                    with(density) { DpOffset(it.position.x.toDp(), 0.dp) }
                             }
                         }
                     }
@@ -712,7 +710,7 @@ private fun SongList(
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
-    val selectedKeys by remember(selectedSongs) { derivedStateOf { selectedSongs.map { it.uniqueKey }.toHashSet() } }
+    val selectedKeys by rememberSelectedKeys(selectedSongs)
     val bottomReserve = LocalFloatingBottomBarReserve.current
 
     val shouldLoadMore by remember {
@@ -740,13 +738,10 @@ private fun SongList(
                 val density = LocalDensity.current
                 Box(
                     modifier = Modifier.pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                                event.changes.firstOrNull()?.let {
-                                    menuOffset =
-                                        with(density) { DpOffset(it.position.x.toDp(), 0.dp) }
-                                }
+                        onPress { event ->
+                            event.changes.firstOrNull()?.let {
+                                menuOffset =
+                                    with(density) { DpOffset(it.position.x.toDp(), 0.dp) }
                             }
                         }
                     }

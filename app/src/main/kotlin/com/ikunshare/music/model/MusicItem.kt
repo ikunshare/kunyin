@@ -96,7 +96,7 @@ abstract class MusicItem(
                 "netease", "wy" -> com.ikunshare.music.platform.wy.NeteaseMusicItem.fromJson(json)
                 "kugou", "kg" -> com.ikunshare.music.platform.kg.KugouMusicItem.fromJson(json)
                 "kuwo", "kw" -> com.ikunshare.music.platform.kw.KuwoMusicItem.fromJson(json)
-                "joox" -> com.ikunshare.music.platform.joox.JooxMusicItem.fromJson(json)
+                "am" -> com.ikunshare.music.platform.am.AppleMusicItem.fromJson(json)
                 else -> throw IllegalArgumentException("Unknown MusicItem type: $type")
             }
         }

@@ -541,7 +541,7 @@ class KwProvider(
                 "&artist_id=$artistId&start=$start&count=$size" +
                 "&uid=794762570&prod=kwplayer_ar_9.2.2.1&vipver=1" +
                 "&presell=1&hasmv=1&hasinner=1"
-        val response = HTTPUtils.get(url)
+        val response = HTTPUtils.getBytes(url)
         if (!response.isSuccessful) {
             return AlbumSearchResult(source, false, page, size, emptyList())
         }
@@ -1002,7 +1002,7 @@ class KwProvider(
         return try {
             val params = LrcNative.buildKuwoParams(item.id.toString())
             val url = "http://newlyric.kuwo.cn/newlyric.lrc?$params"
-            val response = HTTPUtils.getCancellable(url)
+            val response = HTTPUtils.getBytesCancellable(url)
             if (response.isSuccessful && response.bodyBytes != null) {
                 LrcParser.parseKw(response.bodyBytes).toLyric()
             } else {

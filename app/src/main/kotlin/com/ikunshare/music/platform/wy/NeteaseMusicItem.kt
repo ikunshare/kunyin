@@ -99,9 +99,18 @@ class NeteaseMusicItem(
             )
         }
 
+        private fun skyQuality(data: JsonObject): JsonObject? {
+            val c51 = data.safeGetArray("sks")?.firstOrNull { element ->
+                val candidate = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@firstOrNull false
+                candidate.get("it")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }
+                    ?.asString == "c51"
+            }?.asJsonObject
+            return c51 ?: data.safeGetObject("sk")
+        }
+
         /**
          * 从 /api/song/music/detail/get 响应中提取高级音质信息，补充到 item。
-         * jm → master, je → effect_plus, sk → effect
+         * jm → master, je → atmos_plus, sks/sk → atmos
          */
         fun enrichFromQualityDetail(
             item: NeteaseMusicItem,
@@ -113,16 +122,15 @@ class NeteaseMusicItem(
 
                 data.safeGetObject("jm")?.let { q ->
                     val size = q.get("size").safeLong()
-                    if (size > 0) mutableQualities["master"] = Quality("master", "鲸云母带", size)
+                    if (size > 0) mutableQualities["master"] = Quality("master", "超清母带", size)
                 }
                 data.safeGetObject("je")?.let { q ->
                     val size = q.get("size").safeLong()
-                    if (size > 0) mutableQualities["atmos_plus"] =
-                        Quality("atmos_plus", "沉浸环绕声", size)
+                    if (size > 0) mutableQualities["atmos_plus"] = Quality("atmos_plus", "高清臻音", size)
                 }
-                data.safeGetObject("sk")?.let { q ->
+                skyQuality(data)?.let { q ->
                     val size = q.get("size").safeLong()
-                    if (size > 0) mutableQualities["atmos"] = Quality("atmos", "高清臻音", size)
+                    if (size > 0) mutableQualities["atmos"] = Quality("atmos", "沉浸环绕声", size)
                 }
 
                 if (mutableQualities.size == item.qualities.size) return item

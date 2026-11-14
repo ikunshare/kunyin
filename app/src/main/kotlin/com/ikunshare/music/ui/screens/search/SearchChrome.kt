@@ -37,13 +37,15 @@ import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -108,8 +110,7 @@ internal fun SearchTopBar(
     searchType: SearchType,
     supportedSearchTypes: List<SearchType>,
     onSearchTypeSwitch: (SearchType) -> Unit,
-    onFocusChange: (Boolean) -> Unit,
-    onOpenDiscovery: (() -> Unit)? = null
+    onFocusChange: (Boolean) -> Unit
 ) {
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -122,6 +123,7 @@ internal fun SearchTopBar(
         focusManager.clearFocus()
         keyboard?.hide()
     }
+    var showCompactProviderMenu by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxWidth().windowInsetsPadding(TopAppBarDefaults.windowInsets)
             .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -133,9 +135,7 @@ internal fun SearchTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (onOpenDiscovery != null) GlassIconButton(onClick = onOpenDiscovery) {
-                Icon(Icons.Filled.Explore, "发现歌单与排行榜")
-            } else Icon(Icons.Filled.Search, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Filled.Search, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             BasicTextField(
                 value = query,
                 onValueChange = onQueryChange,
@@ -160,6 +160,37 @@ internal fun SearchTopBar(
             if (query.isNotEmpty()) {
                 GlassIconButton(onClick = { onQueryChange("") }) {
                     Icon(Icons.Filled.Clear, stringResource(R.string.clear_search))
+                }
+            }
+            // 横屏键盘弹出时下方的平台 chip 会被收起，这里补一个不占纵向空间的下拉入口。
+            // 菜单打开期间即使键盘收起（compact 变 false）也要保留锚点，否则菜单会被一起移除。
+            if ((compact || showCompactProviderMenu) && availableProviders.size > 1) {
+                Box {
+                    GlassButton(onClick = { showCompactProviderMenu = true }, height = 40.dp) {
+                        Text(
+                            MusicApplication.instance?.musicRepository?.getProvider(currentProvider)?.displayName
+                                ?: currentProvider,
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 96.dp)
+                        )
+                    }
+                    DropdownMenu(showCompactProviderMenu, { showCompactProviderMenu = false }) {
+                        availableProviders.forEach { source ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(MusicApplication.instance?.musicRepository?.getProvider(source)?.displayName ?: source)
+                                },
+                                onClick = {
+                                    showCompactProviderMenu = false
+                                    focusManager.clearFocus()
+                                    keyboard?.hide()
+                                    onProviderSwitch(source)
+                                }
+                            )
+                        }
+                    }
                 }
             }
             GlassIconButton(onClick = ::submit, enabled = query.isNotBlank()) {

@@ -645,3 +645,279 @@
 - 按用户澄清适配 Android 预测性返回：导航动画接到系统进度，设置分类局部导航支持拖动预览、取消恢复和确认提交；设置返回处理器限制在当前可见页面。
 - 播放控件仅在窄屏歌词页停稳后自动隐藏，封面、分页拖动和宽屏双栏保持显示；触摸暂停计时及首次点击仅唤醒的行为保留。
 - Debug 构建、Release Kotlin 编译及当前 26 项回归测试通过。API35 模拟器验证了左右边缘、取消/提交、设置分类及歌词隐藏/唤醒/按压/切回封面、宽屏双栏。详细证据与设备限制见 [本轮记录](PREDICTIVE_BACK_PLAYER_CONTROLS.md)。
+
+
+## 2026-11-10 网易云听歌上报与共享播放计时
+
+- 对照桌面 `providers/wy/report.ts` 与 `useListenReport.ts`，为网易云已登录用户补齐 `_plv` 开播和 `_pld` 播放时长上报。记录经 NCBL 封装后以 multipart 上传至 clientlog3，只有回包 `successfiles` 包含本次文件名才视为成功；失败不影响播放，也不记录 Cookie 或正文。
+- WNMCID 使用 SharedPreferences 持久化，deviceId 与 osver 复用 EAPI 的同一设备指纹；VIP 类型按账号缓存，读取失败时本次使用空值且不缓存失败。音质等级、码率、曲目秒数、来源 ID 和 refer 字段沿用桌面协议。
+- QQ 与网易云共用新的播放计时器：暂停期间和进度拖动不虚增时长；切歌、播完、移除当前曲、定时退出和 ViewModel 销毁时结算。保存开播歌曲、音质与来源快照；同曲重载不重复开播，单曲循环可开始新的计时区间。
+- 新增 11 项测试，覆盖播放/暂停/切歌/同曲重载/循环/清空、队列来源、音质映射、匿名与零时长跳过、客户端标识持久化、VIP 缓存、回包拒绝及 `_plv`/`_pld` 字段。本机 HTTP 服务实际接收 multipart 请求并返回文件名确认；NCBL 继续由独立固定向量测试覆盖。
+- NCBL 空正文测试向量原有尾随零，现改为与 Node `zstdCompressSync` 标准输出一致的 9 字节；Android 帧实现未改。全部 28 项现有测试及 Debug APK 构建通过。
+- 本轮未使用真实网易云账号或第三方服务验收，也没有设备端真实音频、登录态变化和进程退出上报证据；本地 HTTP 与状态测试不能替代这些运行验收。整体桌面功能对齐目标继续进行。
+
+
+## 2026-11-10 网易云专辑分碟
+
+- 对照桌面 `providers/wy/index.ts` 的 `buildAlbumDiscs`，网易云专辑曲目现在保留与有效歌曲一一对应的 `cd` 原值，并按连续段生成 `AlbumDisc`。已有 QQ 分碟之外的专辑页、去重、播放和整专下载链路直接复用，无需另造 UI。
+- 支持 `01` 默认碟名和 `02 自定义名称`；无有效碟号时按当前段序回退，`null`、空串及普通脏文本的命名规则与桌面一致。单碟、空专辑和全部缺少 `cd` 时不创建分碟标题。
+- 无效或非对象曲目会单独跳过，不再可能因一条坏数据中断整张专辑解析，也不会让后续曲目的分碟切点错位。高级音质补齐仍按下标一一对应，不增删或重排曲目。
+- 新增 5 项测试，覆盖连续分段、自定义名称、脏值回退、单碟/空值、无效歌曲边界，以及解析结果进入专辑 Section 和整专下载后的全专连续编号、碟内编号、碟名与总碟数。全部 33 项现有测试及 Debug APK 构建通过。
+- 测试使用本地构造的接口响应，尚未验证网易云实时专辑接口、设备端实际显示或真实文件下载；不能据此宣称全部来源的专辑功能已完成运行验收。整体桌面功能对齐目标继续进行。
+
+
+## 2026-11-10 网易云上报默认随机序号修复与设备验收
+
+- 用户设备实测发现上报未发请求。日志确认 `_plv`/`_pld` 均在发送前抛出 `ArrayIndexOutOfBoundsException`：`Ncbl.kt` 将两字节的随机首序号交给四字节 `readIntLe` 读取，上传函数捕获异常后返回 false，因此没有网络请求。
+- 改为两字节小端读取。新增默认随机序号 NCBL 测试和 Reporter 默认加密器上传测试，覆盖此前固定 `baseSeq`、替代加密器没有经过的生产路径；上传结果日志只记录动作、HTTP 状态和确认结果，不记录凭据。
+- 全部 35 项现有测试及 Debug APK 构建通过。保留数据安装到 emulator-5554 后，实际播放缓存中的网易云歌曲，取得 `_plv HTTP 200, acknowledged=true`；切到 QQ 歌曲后取得上一首的 `_pld HTTP 200, acknowledged=true`。设备证据保存在 `build/wy-listen-report-device-validation.log`。
+- 该结果证明本次真实账号、真实服务链路已接收两类请求，不代表听歌记录统计数值或年度报告已经人工核对。此前的“未使用真实账号或服务验收”记录由本节后续证据补充。
+
+
+## 2026-11-10 播放页封面圆角设置
+
+- 对照桌面 `SettingPlayDetail.vue` 和 `player.coverRounded`，播放设置新增“封面使用圆角”，默认开启。关闭后播放页宽屏主封面、窄屏主封面及两处歌词/紧凑布局缩略图共用 0dp 直角；开启时保持原 14dp。迷你播放器与“更多操作”缩略图不受该设置影响。
+- `coverRounded` 使用 `cover_rounded` 持久化，并加入备份 codec 的桌面 `player.coverRounded` 双向映射；桌面嵌套值优先于旧平铺副本，旧 Android 平铺备份继续兼容，缺失字段保留当前值。默认、简体和繁体文案已补齐。
+- 新增 5 项测试，覆盖默认样式、圆角/直角半径、导出字段、桌面嵌套优先、旧平铺恢复与缺失保留。全部 40 项现有测试及 Debug APK 构建通过。
+- 在 emulator-5554 实际进入播放设置关闭开关，宽屏主封面立即变为直角；强制停止并重启进程后仍保持直角。随后重新开启并确认恢复圆角。证据截图在 `app/build/ui-checks/cover-square.png`、`cover-square-restored.png`、`cover-rounded-restored.png`。
+- 本轮设备验证覆盖宽屏主封面；窄屏主封面和歌词缩略图共用已测试的形状函数，但未逐尺寸截图。真实桌面与 Android 备份文件的互导仍未操作验收。整体桌面功能对齐目标继续进行。
+
+
+## 2026-11-10 网易云沉浸环绕声版本与音质名称
+
+- 对照桌面 `providers/wy/item.ts`，高级音质补齐不再直接使用默认 `sk`：先在 `sks` 中查找 `it=c51` 的 5.1 声道 FLAC 版本，缺失时才回退 `sk`，与后端的 `immerseType=c51` 请求保持一致。
+- 网易云名称修正为 `jm=超清母带`、`je=高清臻音（atmos_plus）`、`sks/sk=沉浸环绕声（atmos）`，修正原先把 `sk` 与 `je` 名称写反的问题。QQ 等存量来源的旧 `atmos_plus` 全局标签未改动。
+- 新增 4 项测试，覆盖 `c51` 优先、无 `c51` 时回退、三项名称和文件大小、已有歌曲字段/音质保留、空详情与原实例保持。全部 44 项现有测试及 Debug APK 构建通过。
+- 测试使用固定接口响应；未验证网易云实时响应或真实 5.1 音频播放。杜比全景声、Audio Vivid 和桌面软解器不因本次改动而视为已完成。整体迁移继续进行。
+
+
+## 2026-11-10 播放失败后自动跳过设置
+
+- 对照桌面 `SettingPlay.vue`、`player.autoSkipOnError` 和播放器 `reportFailure`，Android 播放设置新增“播放失败后自动跳过”，默认开启。关闭后，加载、解析和播放错误保留当前歌曲及错误反馈，不再在五秒后自动跳到下一首。
+- 开关在安排跳转时生效，延迟结束准备切歌时再次读取；等待期间关闭开关、缩减到单首队列或切到单曲循环/单曲播放都会阻止本次自动跳转。原有切歌、重试与错误清除取消计时逻辑保持不变。
+- 新设置使用 `auto_skip_on_error` 持久化，备份 codec 支持桌面 `player.autoSkipOnError` 与 Android 平铺字段，桌面嵌套值优先，缺失字段保留当前值。默认、简体和繁体文案已补齐。
+- 新增 3 项测试，覆盖开关/队列长度/播放模式、默认值与导出、桌面及旧平铺恢复和缺失保留。全部 47 项现有测试及 Debug APK 构建通过。
+- 未在设备上制造真实播放故障验证五秒计时，也未核对桌面备份文件互导；“播放失败后尝试其他音源”仍是独立未搬运功能。整体目标继续进行。
+
+
+## 2026-11-10 平台音质名称与适用范围
+
+- 对照桌面 `qualityName` 建立统一音质显示映射：通用档、杜比/Vivid 名称，以及网易云、酷我、酷狗和 Apple Music 的来源专用名。播放器当前音质、音质选择面板及更多操作下载行不再直接读旧歌曲保存的 `Quality.name`，避免新旧名称混杂。
+- 通用下载音质和首选音质下拉的 `atmos_plus` 同步改为“高清臻音”；QQ 与 LX 的内部旧名称字段仍保留，用于存量数据和导入兼容，不作为当前显示名。
+- 按桌面 `SOURCE_ONLY_QUALITIES` 将 `atmos_plus` 限制为网易云播放候选；QQ/酷我旧歌曲里的同键条目会过滤，QQ 无可解析音质时的 128k 兜底保持原行为。
+- 新增 3 项测试，覆盖通用名、未知档回退、各来源覆盖、网易云/QQ/酷我候选差异和 QQ 兜底。全部 50 项现有测试及 Debug APK 构建通过。
+- 本轮未逐页截图，也未验证真实音频；新增名称不等于已支持杜比/Vivid 解码。桌面失败换源需要重构 Android 当前异步媒体准备流程，仍未完成。整体迁移继续进行。
+
+
+## 2026-11-10 失败歌曲记忆与队列跳过
+
+- 对照桌面播放器的 `failedKeys`，Android 在允许自动跳过时记录当前失败歌曲的 `uniqueKey`，顺序、列表循环、手动切歌及随机队列的下一首选择会跳过本轮失败项，避免连续加载故障反复命中同一首。
+- 成功准备媒体、用户主动点歌/恢复及设置新队列时清除相应失败记忆；没有失败项时保留原有随机重排行为。顺序模式仍然到队尾停止，不借此次修改变成循环播放。
+- 队列全部失败时停止自动跳转并显示“队列中的歌曲均无法播放，请检查网络或更换音源”，三套本地化文案已补齐。关闭自动跳过时不会新增失败标记或安排跳转。
+- 新增 3 项测试，覆盖连续失败项、正反向、是否回绕、无效索引、全部失败和跨来源歌曲键。全部 53 项现有测试及 Debug APK 构建通过。
+- 本轮未在设备上制造多首连续失败，也未实现失败后的跨平台搜索换源；单元测试证明选择规则，不代表完整音频故障链路已验收。整体迁移继续进行。
+
+
+## 2026-11-10 倍速播放保持音调
+
+- 对照桌面 `PlaybackRatePopover.vue` 与 `player.preservesPitch`，Android 倍速菜单新增“保持音调”，默认开启；切换时菜单保持打开，关闭后显示“变速会同时改变音调”的说明。选择具体倍速仍按原行为收起菜单。
+- ExoPlayer 改为显式设置 `PlaybackParameters(speed, pitch)`：保持音调时 pitch=1，关闭时 pitch=speed。设置流在 ViewModel 启动及字段变化时同步，因此持久化的关闭状态在非播放页启动后也会应用，后续倍速切换不会把音调重置。
+- `preservesPitch` 使用 `preserves_pitch` 持久化，备份 codec 支持桌面 `player.preservesPitch` 与 Android 平铺字段，桌面嵌套值优先，缺失字段保留当前值。默认、简体和繁体文案已补齐。
+- 新增 2 项测试，覆盖多种速度的 pitch 计算、默认值、导出、桌面及旧平铺恢复与缺失保留。全部 55 项现有测试及 Debug APK 构建通过。
+- 本轮未进行真实音频试听或不同编码格式兼容性验收；参数和状态测试不能证明实际听感。整体桌面功能对齐继续进行。
+
+
+## 2026-11-10 倍速持久化与启动恢复
+
+- 对照桌面 `player.playbackRate`，修复 Android 倍速此前仅存在 `PlayerUiState`、重启后回到 1× 的问题。新增应用设置 `playbackRate`，使用 `playback_rate` 持久化；ViewModel 初始状态及设置流都会同步到 ExoPlayer，不依赖是否打开播放页。
+- 用户在倍速菜单选择速度时同时更新媒体、界面、MediaSession、歌词时钟和持久化设置。启动恢复队列/进度时保留已保存倍速，不会被快照中的缺省值覆盖。
+- 倍率统一限制在 Android 已有的 0.25×–3×，非有限值回退 1×；备份 codec 支持桌面 `player.playbackRate` 与 Android 平铺字段，桌面嵌套值优先，越界恢复会收敛，缺失字段保留当前值。
+- 新增 3 项测试，覆盖默认值、非法/越界倍率、导出、桌面与旧平铺恢复及缺失保留。全部 58 项现有测试及 Debug APK 构建通过。
+- emulator-5554 实际选择 1.5×，强制停止并重启后播放页仍显示 1.5×，随后恢复 1×。证据为 `app/build/ui-checks/playback-rate-1_5.png`、`playback-rate-restarted.png`、`playback-rate-restored-1x.png`；本轮没有以界面文字代替真实听感验收。整体迁移继续进行。
+
+
+## 2026-11-10 播放器音量与静音持久化
+
+- 对照桌面 `setVolume`/`toggleMute`，新增 `playerVolume` 与 `muted` 应用设置。播放页音量图标改为可操作的静音按钮，静音或零音量显示静音图标；静音时滑杆显示 0，保留原音量供取消静音恢复。
+- 拖动到大于 0 的音量会解除静音，拖到 0 不额外改写静音标记。音量与静音在启动及设置变化时同步到 ExoPlayer；音频焦点降音和恢复也检查静音，避免焦点事件导致意外出声。
+- 使用 `player_volume`/`player_muted` 持久化，音量限制 0..1、非有限值回退 1。备份 codec 映射桌面 `player.volume`/`player.muted`，兼容 Android 平铺字段，嵌套优先、缺失保留、越界收敛。默认、简体和繁体提供静音/取消静音无障碍文案。
+- 新增 3 项测试，覆盖音量归一化、有效音量、默认值、导出、桌面/旧平铺恢复、越界及缺失保留。全部 61 项现有测试及 Debug APK 构建通过。
+- emulator-5554 实际切换静音后图标与滑杆变为 0，强制停止并重启仍保持，取消静音后原滑杆位置恢复。证据为 `app/build/ui-checks/player-muted.png`、`player-muted-restarted.png`、`player-unmuted-restored.png`。本轮未进行声压或真实听感测量。整体迁移继续进行。
+
+
+## 2026-11-10 Apple Music 歌曲模型基础
+
+- 对照桌面 `providers/am/item.ts` 新增 `AppleMusicItem` 与响应解析：保留数字 ID、标题、歌手列表、专辑 ID、封面、音质、码率及 `previewUrl`，无音质时按桌面提供 320k 占位。
+- 时长支持毫秒、数值秒及冒号分隔文本；无效行安全跳过，异常 `artists` 类型不影响其他字段。音质名称复用上一轮的平台映射，Apple 的 AAC/ALAC 名称不会误用其他平台文案。
+- 公共 `MusicItem.fromJson` 已识别 `am`，`previewUrl` 与公共字段可经 JSON 往返恢复。这为后续歌单/收藏存储提供基础，但不会把未知来源丢弃。
+- 新增 4 项测试，覆盖完整歌曲、时长转换、无效行与默认值、公共分发 JSON 往返。全部 65 项现有测试及 Debug APK 构建通过。
+- 本轮没有实现或注册 Apple Provider，没有搜索/专辑/歌手页面、原始 TTML 请求、HLS、FairPlay 密钥、重封装、下载或播放能力，也没有发起线上请求。不能将模型测试称为 Apple Music 功能已经可用。整体迁移继续进行。
+
+
+## 2026-11-10 Apple Music Provider 数据接口
+
+- 新增 `AmProvider`，按桌面 `/music/search`、`/music/album`、`/music/artist`、`/music/lyric` 发送 POST，复用 `AuthManager.currentAuthst` 作为 `X-Api-Key`。请求参数保留来源、类型、视图及一基分页；HTTP、语义失败和取消分别处理。
+- 支持单曲/专辑/歌手搜索、专辑元数据与最多 50 页的歌曲合并、分碟信息、歌手信息/歌曲/专辑。专辑中途失败保留已取得曲目，首包失败返回空结果；坏歌曲行不会中断整页。
+- `Lyric` 新增原始 `ttml` 字段并纳入空内容判断，Apple 歌词请求原样返回 TTML、LRC、翻译和逐字字段。当前只是保存与传递原文，没有把它接入歌词渲染器。
+- 新增 6 项 Provider 测试；本机 HTTP 服务实际验证认证头、搜索正文、分页和响应解析，另有专辑跨页/中途失败、元数据、歌手视图与 TTML 测试。全部 71 项现有测试及 Debug APK 构建通过。
+- Provider 尚未在应用 Provider 表中注册，仍没有用户入口、线上服务验收、真实 TTML 渲染、媒体解析、HLS/FairPlay、下载或播放。整体 Apple 功能仍不可用时，不应把本轮视为完整音源交付。
+
+
+## 2026-11-10 Apple 原始 TTML 接入歌词解析
+
+- `LyricKitAdapter` 现在优先解析非空原始 TTML，使用项目已有 `ttml-itunes` 解析器生成应用现有 `ParsedLyric`；保留原文于 `Lyric.ttml`，无需先降级成逐行 LRC。
+- TTML 管线不执行 LRC 的词时长重建、agent 猜测或背景提取，避免破坏真实结构；保留逐字 begin/end、行尾、head 翻译/音译、对唱、背景和声及 songwriter 制作信息。解析不到有效唱词或失败时回退已有 LRC/逐字路径。
+- 新增 4 项真实 XML 结构测试，覆盖逐字时间、翻译/音译、对唱、背景、制作信息、TTML 优先级、无唱词/损坏回退及纯文本行。全部 75 项现有测试及 Debug APK 构建通过。
+- 当前证据覆盖解析后的应用模型，不是播放页逐字动画、悬浮歌词或线上 Apple 歌词的视觉验收；Apple 音源仍未注册，也没有媒体播放。整体迁移继续进行。
+
+
+## 2026-11-10 Apple 媒体元数据与后端映射
+
+- `MediaInfoResult` 增加桌面已有的 `kind`、`adamId`、`keyEndpoint`、`codec`、`audioGroup`、码率、采样率和位深可选字段，旧构造调用保持兼容。
+- `MusicUrlHelper` 增加 `am → apple` 后端映射及数字歌曲 ID 提取；只有 Apple 响应才解析这些附加字段，其他平台保持原路径。Apple 的 HLS 清单地址仍只是 `playUrl` 元数据，不能据此直接播放。
+- 新增 3 项测试，覆盖完整元数据、缺失/异常类型、Apple 与既有平台映射及歌曲 ID。最终 XML 汇总为全部 78 项现有测试通过，Debug APK 构建通过；同时更正上一条 TTML 记录中手工累加错误的测试数（应为 75 项）。
+- 本轮未请求线上取链接口，也未实现 HLS 分片、密钥模板、解密、重封装、缓存或播放；媒体元数据测试不等于音频链路可用。整体迁移继续进行。
+
+
+## 2026-11-10 Apple HLS 字节分片清单解析
+
+- 对照桌面 `parseApplePlaylist` 新增 `ApplePlaylist`/`AppleSegment` 和清单解析：识别 FairPlay `KEYFORMAT` 的密钥 URI、显式/隐式 `BYTERANGE`、相对资源地址及连续偏移。
+- 密钥变更按后续分片生效，无关 KEYFORMAT 不覆盖当前密钥；无有效分片、非正长度、负偏移、非法数字、偏移溢出及多个独立音频文件均明确拒绝。
+- 新增 5 项测试，覆盖隐式/显式 Range、相对 URL、密钥切换、CRLF、无分片、多文件和非法边界。测试发现非法显式偏移最初被误当成省略，已修复并回归；全部 83 项现有测试及 Debug APK 构建通过。
+- 本轮没有执行 Range 网络请求、初始化段读取、moof/mdat 样本索引、Temari 解密或播放，也没有主清单音轨选择器（桌面当前取到的是媒体分片清单）。整体迁移继续进行。
+
+
+## 2026-11-10 Apple Range 分片下载与取消
+
+- 对照桌面 `appleHls.ts` 的 `fetchRange` 新增 `AppleRangeClient`：发送指定 `Range: bytes=start-end`，读取 206 分片；服务端以 200 返回完整响应时跳过请求前缀，取得目标字节后取消 OkHttp Call，避免继续接收无用数据。
+- 非成功响应、非法或过大区间、目标数据不完整均明确失败；协程取消会取消 OkHttp Call，无需等待服务端发送完整资源。
+- 新增 4 项测试，通过本机 HTTP 服务和原始 Socket 验证 206 精确区间、200 跳前缀、短响应/非法区间及阻塞响应读取取消。最终 XML 汇总为全部 87 项测试通过，Debug APK 构建通过。
+- Range 客户端尚未接入媒体解析、下载或播放器；初始化段、moof/mdat 样本索引、Temari、FairPlay、重封装和缓存仍未实现。本轮交付为可取消的分片下载基础，不是 Apple Music 播放能力。整体迁移继续进行。
+
+
+## 2026-11-10 Apple MP4 盒与分片样本索引
+
+- 新增 `FairplayMp4.kt`，对照桌面移植普通/扩展/到文件末尾的 MP4 盒读取、容器递归查找和 `trex` 默认样本大小/时长表。无符号字段、盒边界、截断字段及偏移溢出均有明确检查。
+- `parseAppleFragment` 支持 `tfhd` 绝对数据偏移、`trun` 样本大小与时长、轨道默认值、相邻 `trun` 的大小推导，以及普通 `senc` 和 PIFF UUID 的子样本表。索引时允许 `mdat` 只有头部，样本载荷是否完整留给后续读取/解密阶段检查。
+- 新增 5 项纯合成二进制测试，覆盖盒遍历、扩展盒头、默认参数、多段样本偏移、截断的 `mdat`、两类子样本表、非法长度和样本数不一致。最终 XML 汇总为全部 92 项测试通过，Debug APK 构建通过。
+- 本轮没有使用线上或真实 Apple 加密文件验收；初始化段读取、分片头扩窗索引、Temari 密钥模板、FairPlay 解密、重封装、缓存和播放仍未实现。解析出样本表不等于音频链路已经可用。整体迁移继续进行。
+
+
+## 2026-11-10 Temari JSON 模板解析（不含解密）
+
+- 对照桌面固定版本的 [Temari `template.rs`](https://github.com/WorldObservationLog/Temari/blob/85c67622adb339142a1dc22841a09e0b81373694/src/template.rs)，新增 `TemariTemplate.kt`：解析 Base64 `ctx`/`state`，保留至少 32 KiB 的上下文，并按 263 个反向偏移槽位构造 2048 项状态表。源项目的 MIT 许可已保留。
+- 五个寄存器支持可选 `0x`/`+` 前缀、缺省为 0、最多 64 位无符号十六进制并截取低 32 位；Base64 与上游一样忽略非字母表字符、允许无填充及不足一个输出字节的尾部。缺失/过短二进制字段和非法寄存器均明确拒绝。
+- 新增 4 项纯 JUnit 测试，使用合成上下文和状态验证槽位映射、寄存器截断、数值字段、Base64 容错及非法输入。最终 XML 汇总为全部 96 项测试通过，Debug APK 构建通过。
+- 本轮只读取公开固定源码核对格式，没有请求密钥或激活服务，也没有真实模板和加密样本验收。`createAppleTemplates` 的请求去重与失败释放、WASM 轮函数、样本解密、重封装和播放仍未搬运；模板解析成功不能称为已经解密。整体迁移继续进行。
+
+
+## 2026-11-10 Apple 密钥模板请求与失败释放
+
+- 新增 `AppleTemplateLoader` 和 `AppleAudioSpec`，对照桌面 `createAppleTemplates` 按分片密钥 URI 去重，携带 `X-Api-Key` 及 `source`/`musicId`/`uri` 请求密钥模板。公共段 `skd://itunes.apple.com/P000000000/s1/e1` 的音乐 ID 固定为 0，普通段保留歌曲 ID。
+- HTTP 状态、服务 `code` 和 `data` 对象均严格检查。`AppleSampleDecryptor` 定义实际解密引擎的边界，由工厂注入；失败或协程取消会关闭此前已创建的模板，关闭异常附带记录而不覆盖原异常，成功结果交由后续调用方释放。
+- 新增 5 项测试，通过本机 HTTP 验证认证头、请求正文、公共段和去重，并覆盖无效数据、HTTP/语义错误、工厂失败及协程取消的释放行为。最终 XML 汇总为全部 101 项测试通过，Debug APK 构建通过。
+- 测试工厂仅验证生命周期，不是解密实现。没有请求线上密钥或激活服务，也没有真实模板、WASM 轮函数、加密样本或播放验收；Apple 音源仍未注册。整体迁移继续进行。
+
+
+## 2026-11-10 Apple 分片头扩窗索引
+
+- 新增 `AppleSegmentIndexer`，组合可取消 Range 下载与 MP4 分片解析。窗口默认从 32 KiB 开始，缺少完整 `moof` 或 `mdat` 头时按 4 倍扩大，最多重试 3 次，并始终限制在分片末尾；已取得完整分片仍无法索引时不再重复请求。
+- 支持跳过 `moof` 前的 `sidx` 等其他盒及 `moof` 后的 `emsg`/`prft`，`mdat` 载荷不要求进入索引窗口。返回考虑前置盒偏移的远端 `moof` 起点及逐样本大小/时长，空样本、意外盒类型和非法范围明确失败。
+- 新增 5 项测试，以本机 HTTP 206 响应验证扩窗请求和远端偏移，另覆盖 4 倍增长、重试上限、完整窗口停止、额外盒跳过及空样本。最终 XML 汇总为全部 106 项测试通过，Debug APK 构建通过。
+- 当前仅实现单分片索引；多分片并发汇总、初始化段处理、ALAC 时长回退、真实 Apple 媒体、Temari 解密、重封装、缓存和播放仍未接入。整体迁移继续进行。
+
+
+## 2026-11-10 Apple 多分片并发索引与汇总
+
+- 新增 `AppleTrackIndexer`，按桌面 `mapLimit` 以 4 路并发读取分片索引，并按原始分片顺序返回结果。首个任务同步失败也不会阻止其他初始 worker 领取任务；首次失败后停止领取新任务、等待已在途任务，外部协程取消会取消整个索引过程。
+- `buildAppleTrackIndex` 汇总逐样本大小/时长、远端分片起止、样本区相对起点、每段字节数、总样本字节数和轨道时长。零时长保留供后续 ALAC 帧长回退；空分片、非正样本大小、越界起点及数量/数值溢出明确拒绝。
+- 新增 5 项测试，使用合成 MP4 和可控 Range 验证并发上限、乱序完成后的顺序、失败时在途任务完成、整体取消及聚合边界。测试发现并修复了初始 worker 的同步失败竞态。最终 XML 汇总为全部 111 项测试通过，Debug APK 构建通过。
+- 本轮未请求线上 Apple 媒体，也尚未实现初始化段读取与变换、扁平 `moov` 重建、Temari 样本解密、重封装、缓存或播放。多分片索引仍不是可播放文件。整体迁移继续进行。
+
+
+## 2026-11-10 Apple 初始化段解析与 ALAC 元数据
+
+- 新增 `AppleInitSegment.kt`，校验初始化段的 `ftyp`/`moov`，移除 `pssh`、相关样本组及 `sinf` 加密描述，将 `enca` 按 `frma` 还原为明文格式。`stsd` 的多条样本描述及条目数全部保留，换密钥不会静默丢掉后续描述。
+- `readAlacMetadata` 支持 v0/v1 时基、16.16 采样率和 ALAC cookie 帧长；初始化段同时返回 `trex` 与默认 IV 长度，跳块加密明确拒绝。新增 `makeMp4Box` 供后续重建使用，测试发现并修正了盒长度字段写入位置。
+- 新增 4 项合成 MP4 测试，覆盖双样本描述、加密盒移除、元数据、v1 时基、无加密描述、跳块加密和缺失 ALAC 等边界。最终 XML 汇总为全部 115 项测试通过，Debug APK 构建通过。
+- 本轮仅处理已取得的初始化段字节，没有接入初始化段 Range 下载、扁平 `moov` 重建、真实 ALAC 媒体、Temari 解密、重封装、缓存或播放。整体迁移继续进行。
+
+
+## 2026-11-10 Apple 扁平 moov 与虚拟样本偏移
+
+- 新增 `AppleMoovBuilder.kt`，保留明文 `stsd` 及必要的 `mdia`/`minf` 子盒，重建 `stts`/`stsz`/`stsc`/`stco`，移除流式扁平文件不需要的 `mvex`/`edts`/`udta`。两遍构建先确定头长度，再生成逐样本真实偏移、分片虚拟起点和文件总长度，限制在 32 位偏移范围内。
+- 全部样本时长缺失时使用 ALAC cookie 帧长补齐，部分缺失仍明确拒绝；轨道时长与电影时基换算使用精确整数舍入，`mvhd`/`tkhd`/`mdhd` 的 v0/v1 字段均支持。
+- 新增 4 项测试，直接解析生成的 MP4 表，验证连续时长合并、逐样本大小与块偏移、保留/移除的盒、ALAC 回退、v1 时长及非法边界。最终 XML 汇总为全部 119 项测试通过，Debug APK 构建通过。
+- 当前输出只有虚拟 MP4 头与索引，没有填入解密样本。初始化段 Range 接入、真实 Apple 媒体、Temari 样本解密、重封装、缓存及播放仍未完成。整体迁移继续进行。
+
+
+## 2026-11-10 Apple 样本解密调度与内存填装
+
+- 新增 `decryptAppleSamples`，按分片样本表提取密文并拼接明文，支持整样本解密、子样本的 clear/protected 区间及末尾未加密字节。样本越界、子样本越界、解密器返回长度变化均明确拒绝。
+- 新增 `AppleTrackAssembler`，按虚拟分片的远端范围取完整 MP4，选择对应密钥模板并解析样本，再按虚拟偏移填装 `ftyp + moov + 明文样本`。分片长度和虚拟范围严格校验，模板仍由调用方持有和释放，协程取消在取数及处理边界传播。
+- 新增 5 项测试，用可识别的 XOR 替身验证整样本/子样本处理、非整块尾部、两个分片的拼接、样本越界、缺模板及长度不符。最终 XML 汇总为全部 124 项测试通过，Debug APK 构建通过。
+- XOR 测试只证明解密调度与填装，不是 Temari/FairPlay 算法验收。当前是整轨内存填装，未实现真实 WASM 引擎、桌面的按需流式读取、LRU/临时文件缓存、线上媒体、重封装或播放。整体迁移继续进行。
+
+
+## 2026-11-11 Temari 原生样本解密引擎
+
+- 将桌面固定提交的 [Temari 源码](https://github.com/WorldObservationLog/Temari/tree/85c67622adb339142a1dc22841a09e0b81373694)引入 `app/src/main/cpp/temari`，源文件 Git Blob 哈希逐一核对一致，使用固定 Rust `1.97.1`。`build-android.sh` 可用 NDK 重建四个 ABI，生成的 `libtemari.so` 随应用打包，普通 Gradle 构建不依赖 Rust。
+- `TemariJni.cpp` 接入 `tmpl_from_json`、`decrypt_sample_ffi` 和 `tmpl_destroy`。`TemariTemplate` 实现 `AppleSampleDecryptor`，支持字符串/`JsonObject` 模板、非整块尾部、幂等关闭和关闭后拒绝使用；R8 保留原生入口。MIT 许可随包提供，关于页增加项目及许可链接。
+- 新增 3 项真实原生测试，使用上游内嵌 `track_1720704575_s1` golden vector（9354 字节）验证完整明文、分段重置、尾部及无效模板。最终 XML 汇总为全部 127 项测试通过，Debug/设备测试 APK 和 Release 构建通过。
+- 新建 x86_64 AVD `temari-native-test`，实际安装应用与测试 APK，`TemariNativeInstrumentation` 返回 `golden vector passed: 9354 bytes`。证据为 `build/temari-native-device-validation.log`。本轮未使用线上密钥、真实歌曲或激活服务，也未注册 Apple 音源；初始化段 Range 接入、按需流式缓存、真实播放和下载仍待完成。整体迁移继续进行。
+
+
+## 2026-11-11 Apple 曲目准备流程与模板所有权
+
+- 新增 `AppleTrackPreparer`，按桌面顺序串联清单下载、初始化段 Range、初始化段变换、真实 Temari 模板加载、多分片并发索引及扁平 `moov` 构建。默认模板工厂已是 `TemariTemplate`，不再只是解密接口占位。
+- `PreparedAppleTrack` 汇总文件 URL、清单、初始化段、文件头和模板，供后续按需读取。模板加载后的索引/构建失败或协程取消会释放全部模板；成功返回的对象负责关闭，重复关闭安全，共享实例按身份去重，关闭异常不会覆盖原异常。
+- 新增 5 项测试，以真实本机 HTTP、真实 Temari 模板和合成 MP4 验证准备顺序、远端范围、文件头及失败/取消释放，另覆盖缺少初始化段和共享模板关闭。最终 XML 汇总为全部 133 项测试通过，Debug 与设备测试 APK 构建通过。
+- 全量回归发现旧并发测试未区分失败前已领取与失败后新领取的任务，已拆成确定性的在途等待和单 worker 停止领取测试，生产并发逻辑未改变。本轮仍未接入线上真实歌曲、按需流式缓存、播放器或下载入口。整体迁移继续进行。
+
+
+## 2026-11-11 Apple 虚拟文件按需读取与分片缓存
+
+- 新增 `AppleVirtualTrackReader`，按虚拟偏移返回最多 256 KiB 的数据：文件头直接读取，样本区按分片二分定位，命中时才按远端 Range 下载、解析并用对应 Temari 模板解密。支持跨文件头/分片边界和负起点/末尾截断。
+- 同一分片的在途请求共享，成功结果进入默认 24 MiB 的 LRU 缓存，超限淘汰最久未读分片。调用方取消等待不会误删仍在途的共享请求；`close` 会取消全部读取、等待任务退出后清空缓存并关闭 `PreparedAppleTrack`，避免模板在解密中被提前释放。
+- 新增 5 项测试，使用真实 Temari golden vector 验证文件头/尾部明文读取，并以 XOR 替身验证跨分片、并发去重、缓存复用、LRU 淘汰及关闭取消。最终 XML 汇总为全部 138 项测试通过，Debug 与设备测试 APK 构建通过。
+- 当前接口是按需 `ByteArray` 读取，尚未接入 ExoPlayer/DataSource，也没有临时文件、持久化整轨缓存、在线真实歌曲或播放验收。整体迁移继续进行。
+
+
+## 2026-11-11 Apple 分片落盘与持久缓存索引
+
+- 新增 `AppleTrackRecording`，按虚拟偏移用 `RandomAccessFile` 写入分片，支持乱序完成和重复分片去重。全部片段到齐后校验长度、提交 `.m4a`；中途关闭或写盘失败清理临时文件，缓存失败不影响已解密分片的读取。
+- 新增 `AppleAudioCache`，提供桌面同形的 `apple-audio-index.json`（键、路径、大小、最近使用时间）、安全文件名、缓存命中更新时间、按最近使用淘汰、索引重载、统计、删除/清空和限额应用。`AppleVirtualTrackReader` 可选接入 recording，重复命中内存缓存不会重复写盘。
+- 新增 4 项测试，覆盖乱序分片提交、索引重载与 LRU 淘汰、半成品/不可写目录清理，以及读取器每个分片只写一次。最终 XML 汇总为全部 142 项测试通过，Debug 与设备测试 APK 构建通过。
+- 当前缓存写入和索引是独立能力，尚未接入 ExoPlayer/DataSource、准备阶段的缓存命中免下载、90 秒无读者临时文件清理或真实在线歌曲验收。整体迁移继续进行。
+
+
+## 2026-11-11 Apple Media3 DataSource
+
+- 新增 `AppleDataSource` 与 `AppleDataSourceFactory`，使用项目已有的 `BaseDataSource` 传输通知，桥接 `DataSpec` 的 URI、起始位置和长度，按 `open/read/close` 提供数据。支持零长度读取、末尾 `RESULT_END_OF_INPUT` 和每次创建新读取器。
+- 同步读取通过 `runBlocking` 调用按需曲目读取器，关闭会取消底层协程并释放 `PreparedAppleTrack`。测试发现首次实现遗漏写入调用方缓冲区，已修复；跨线程关闭会解除阻塞读取，而不是只推进读取计数。
+- 新增 4 项 Media3 接口测试，验证真实 Temari 输出、指定长度与 EOF、工厂新建实例、位置截断、重复打开及阻塞关闭。最终 XML 汇总为全部 146 项测试通过，Debug 与设备测试 APK 构建通过。
+- 当前证明的是 Media3 数据接口和真实解密输出，尚未接入 ExoPlayer 播放、准备阶段缓存命中免下载、90 秒无读者清理或 Apple 音源入口。整体迁移继续进行。
+
+
+## 2026-11-11 Apple 缓存命中与临时文件闲置清理
+
+- `AppleTrackPreparer.prepareSource` 现在优先返回 `CachedAppleTrack`，命中完整文件时不请求清单、初始化段、密钥模板或分片；未命中仍走完整准备流程。`PreparedAppleTrack.newReader` 自动创建分片 recording，缓存限额为 0 时不会写临时文件。
+- `AppleTrackRecording.close` 改为无读者 90 秒后的延迟清理，超时前再次写入会取消清理并 reopen 临时文件；`dispose` 才执行永久清理。写盘失败仍立即丢弃临时文件，已完成文件不受影响。
+- 新增缓存命中/自动落盘测试及超时前恢复写入测试，验证命中时完全没有网络调用、下一次可命中缓存、禁用缓存不写盘和恢复提交。最终 XML 汇总为全部 149 项测试通过，Debug 与设备测试 APK 构建通过。
+- 仍未把缓存文件接入实际 ExoPlayer 播放，也未注册 Apple 音源；真实在线歌曲、下载和播放器交互验收待后续完成。整体迁移继续进行。
+
+
+## 2026-11-11 Apple ExoPlayer ALAC 播放验收
+
+- 使用本机 FFmpeg 生成 1 秒、44.1 kHz 单声道 ALAC 音频，拆分出真实 `ftyp`/`moov` 初始化段和 `moof`/`mdat` 分片，样本共 17,621 字节。`AppleAlacFixtureTest` 验证真实盒解析、索引、扁平文件头及 XOR 还原，全部现有 JVM 测试最终为 150 项通过。
+- `ApplePlaybackInstrumentation` 先在设备验证 Temari golden vector，再通过 `DefaultMediaSourceFactory`、`AppleDataSource` 和 `DefaultRenderersFactory` 的 decoder fallback 播放同一真实 ALAC 夹具。XOR 只用于该夹具的可逆处理，不冒充 FairPlay；原始 Temari golden vector 另行验证真实算法。
+- x86_64 `temari-native-test` 实际安装应用和测试 APK，统一 runner 返回 `播放完成，位置=1001ms，时长=1000ms`，证据为 `build/apple-playback-validation.log`。这证明真实 ALAC 样本可经当前完整读取链被 ExoPlayer 解码到结束，不是仅检查 DataSource 返回值。
+- 本轮未请求线上 Apple Music，也未进行真实歌曲、听感、跨 ABI 播放或音源入口验收；Apple Provider 仍未注册，线上授权、真实缓存命中和下载流程待后续完成。整体迁移继续进行。
+
+
+## 2026-11-11 Apple 音源注册与生产播放桥接
+
+- `MusicApplication.createProviders` 正式注册 `AmProvider`，应用启动的 Provider 表与凭据注入使用该工厂，新增注册测试确认 `am` 与既有平台同时存在。搜索、专辑、歌手和歌词继续复用此前的数据接口。
+- `PlayerViewModel` 增加 `am` 专用 `prepareApplePlayback`：根据 `adamId`/`keyEndpoint` 准备曲目，缓存命中走本地文件，未命中使用 `AppleMediaDataSource` 和既有 `MediaDataSourceBridgeFactory`。缓存键复用歌曲与音质，限额沿用 `AudioCache` 的设置；其他平台路径未改变。
+- 新增 1 项注册测试和 2 项 Android `MediaDataSource` 测试，覆盖真实 Temari 明文偏移读取、EOF、关闭及跨线程取消。最终 XML 汇总为全部 153 项测试通过，Debug 与设备测试 APK 构建通过。
+- 设备 runner 改用生产桥接后再次通过 ALAC 播放，最新结果为 `播放完成，位置=1002ms，时长=1000ms`，证据为 `build/apple-playback-validation.log`。仍未请求线上 Apple Music，真实取链、在线授权歌曲、下载及多 ABI 播放未验收。整体迁移继续进行。

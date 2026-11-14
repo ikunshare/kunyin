@@ -72,7 +72,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -92,7 +91,9 @@ import com.ikunshare.music.platform.base.AlbumInfoResult
 import com.ikunshare.music.platform.base.AlbumPreviewCache
 import com.ikunshare.music.platform.base.ArtistInfoResult
 import com.ikunshare.music.platform.base.ArtistMvItem
+import com.ikunshare.music.ui.utils.onPress
 import com.ikunshare.music.ui.utils.rememberPlaylistWriteActions
+import com.ikunshare.music.ui.utils.rememberSelectedKeys
 import com.ikunshare.music.ui.KunyinViewModelFactory
 import com.ikunshare.music.ui.components.AddToPlaylistDialog
 import com.ikunshare.music.ui.components.CreatePlaylistDialog
@@ -742,6 +743,7 @@ private fun ArtistSongsTab(
     val playerUiState by playerViewModel.uiState.collectAsState()
     val currentSong = playerUiState.currentSong
     val listState = rememberLazyListState()
+    val selectedKeys by rememberSelectedKeys(selectedSongs)
 
     val shouldLoadMore by remember {
         derivedStateOf {
@@ -766,12 +768,9 @@ private fun ArtistSongsTab(
             val density = LocalDensity.current
             Box(
                 modifier = Modifier.pointerInput(Unit) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            val event = awaitPointerEvent(PointerEventPass.Initial)
-                            event.changes.firstOrNull()?.let {
-                                menuOffset = with(density) { DpOffset(it.position.x.toDp(), 0.dp) }
-                            }
+                    onPress { event ->
+                        event.changes.firstOrNull()?.let {
+                            menuOffset = with(density) { DpOffset(it.position.x.toDp(), 0.dp) }
                         }
                     }
                 }
@@ -794,7 +793,7 @@ private fun ArtistSongsTab(
                         }
                     },
                     selectionMode = selectionMode,
-                    selected = selectedSongs.any { it.uniqueKey == song.uniqueKey },
+                    selected = song.uniqueKey in selectedKeys,
                     isPlaying = currentSong?.uniqueKey == song.uniqueKey,
                     onLongClick = { onLongClick(song) },
                     onCheckedChange = { onToggleSelect(song) },

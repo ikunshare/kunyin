@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -61,6 +62,7 @@ data class BottomNavItem(
 val bottomNavItems = listOf(
     BottomNavItem(labelRes = R.string.nav_search, icon = Icons.Filled.Search),
     BottomNavItem(labelRes = R.string.nav_playlists, icon = Icons.AutoMirrored.Filled.QueueMusic),
+    BottomNavItem(labelRes = R.string.nav_discover, icon = Icons.Filled.Explore),
     BottomNavItem(labelRes = R.string.nav_download, icon = Icons.Filled.Download),
     BottomNavItem(labelRes = R.string.nav_settings, icon = Icons.Filled.Settings)
 )

@@ -24,6 +24,8 @@ import com.ikunshare.music.platform.base.PlayListInfoResult
 import com.ikunshare.music.platform.base.ProviderCredentials
 import com.ikunshare.music.platform.base.SearchType
 import com.ikunshare.music.utils.HTTPUtils
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import java.net.URLEncoder
 
 class KgProvider : BaseProvider("kg") {
@@ -51,6 +53,25 @@ class KgProvider : BaseProvider("kg") {
     // ===== search =====
 
     override fun search(keyword: String, page: Int, size: Int): MusicListResult {
+        val result = searchResult(keyword, page, size)
+        val items = result.result.filterIsInstance<KugouMusicItem>()
+        enrichWithMasterSizes(items)
+        fetchCovers(items)
+        return result
+    }
+
+    override suspend fun searchAsync(keyword: String, page: Int, size: Int): MusicListResult =
+        coroutineScope {
+            val result = searchResult(keyword, page, size)
+            val items = result.result.filterIsInstance<KugouMusicItem>()
+            val masterRequest = async { enrichWithMasterSizes(items) }
+            val coverRequest = async { fetchCovers(items) }
+            masterRequest.await()
+            coverRequest.await()
+            result
+        }
+
+    private fun searchResult(keyword: String, page: Int, size: Int): MusicListResult {
         return try {
             val encoded = URLEncoder.encode(keyword, "UTF-8")
             val url = "http://songsearch.kugou.com/song_search_v2?" +
@@ -71,10 +92,6 @@ class KgProvider : BaseProvider("kg") {
             val items = lists.mapNotNull { elem ->
                 runCatching { parseSearchItem(elem.asJsonObject) }.getOrNull()
             }
-
-            enrichWithMasterSizes(items)
-            fetchCovers(items)
-
             val total = data.get("total")?.takeIf { !it.isJsonNull }?.asInt ?: items.size
             val hasNext = (page + 1) * size < total
             MusicListResult(source, hasNext, page, size, items)
@@ -362,11 +379,29 @@ class KgProvider : BaseProvider("kg") {
         }
     }
 
-    override fun getPlayListInfo(inputInfo: String): PlayListInfoResult? = null
+    override fun getPlayListInfo(inputInfo: String): PlayListInfoResult? {
+        val input = inputInfo.trim()
+        if (input.matches(Regex("\\d+")) && getCreds<KgCredentials>() != null) {
+            getUserPlaylist().firstOrNull { it.playListId == input }?.let { return it }
+        }
+        val specialId = parseKgSpecialId(input) ?: return null
+        val special = fetchKgSpecial(specialId) ?: return null
+        return PlayListInfoResult(
+            source = source,
+            img = special.cover,
+            description = special.description,
+            author = null,
+            playListId = "id_$specialId",
+            title = special.name,
+            totalSongs = special.hashes.size
+        )
+    }
 
     override fun getPlayListSongs(playListId: String, page: Int, size: Int): MusicListResult {
+        if (isKgSpecialRef(playListId)) return getSpecialSongs(playListId, page, size)
         val creds = getCreds<KgCredentials>()
             ?: return MusicListResult(source, false, page, size, emptyList())
+        val pageSize = size.coerceAtMost(50)
         return try {
             val resp = KgThirdsso.request(
                 "favorite/song", creds,
@@ -376,30 +411,188 @@ class KgProvider : BaseProvider("kg") {
                     "playlist_id" to playListId,
                     "type" to "self",
                     "page" to (page + 1),
-                    "size" to size,
+                    "size" to pageSize,
                     "filter_local" to 1
                 )
-            ) ?: return MusicListResult(source, false, page, size, emptyList())
+            ) ?: return MusicListResult(source, false, page, pageSize, emptyList())
 
             if (resp.get("error_code")?.asInt != 0)
-                return MusicListResult(source, false, page, size, emptyList())
+                return MusicListResult(source, false, page, pageSize, emptyList())
 
             val data = resp.safeGetObject("data")
-                ?: return MusicListResult(source, false, page, size, emptyList())
+                ?: return MusicListResult(source, false, page, pageSize, emptyList())
             val songs = data.safeGetArray("songs")
-                ?: return MusicListResult(source, false, page, size, emptyList())
+                ?: return MusicListResult(source, false, page, pageSize, emptyList())
             val total = data.get("total")?.asInt ?: 0
 
             val items = songs.mapNotNull { elem ->
                 runCatching { parsePlaylistSong(elem.asJsonObject) }.getOrNull()
             }
             enrichWithSongInfos(creds, items)
-            val hasNext = (page + 1) * size < total
-            MusicListResult(source, hasNext, page, size, items)
+            val hasNext = (page + 1) * pageSize < total
+            MusicListResult(source, hasNext, page, pageSize, items, total = total)
         } catch (e: Exception) {
             Log.e(TAG, "getPlayListSongs failed", e)
-            MusicListResult(source, false, page, size, emptyList())
+            MusicListResult(source, false, page, pageSize, emptyList())
         }
+    }
+
+    private fun getSpecialSongs(playListId: String, page: Int, size: Int): MusicListResult {
+        if (page < 0 || size <= 0) return MusicListResult(source, false, page, size, emptyList())
+        val specialId = parseKgSpecialId(playListId)
+            ?: return MusicListResult(source, false, page, size, emptyList())
+        val special = fetchKgSpecial(specialId)
+            ?: return MusicListResult(source, false, page, size, emptyList())
+        val from = page.toLong() * size
+        if (from >= special.hashes.size) {
+            return MusicListResult(
+                source, false, page, size, emptyList(), total = special.hashes.size
+            )
+        }
+        val to = minOf(from + size, special.hashes.size.toLong()).toInt()
+        val items = fetchKgAudioInfos(special.hashes.subList(from.toInt(), to))
+        fetchCovers(items.filter { it.cover.isBlank() })
+        return MusicListResult(
+            source = source,
+            hasNext = from + size < special.hashes.size,
+            page = page,
+            size = size,
+            result = items,
+            total = special.hashes.size
+        )
+    }
+
+    private fun fetchKgAudioInfos(hashes: List<String>): List<KugouMusicItem> {
+        val result = mutableListOf<KugouMusicItem>()
+        val seen = mutableSetOf<String>()
+        for (batch in hashes.chunked(100)) {
+            var rows: JsonArray? = null
+            for (attempt in 0 until 3) {
+                val response = runCatching {
+                    HTTPUtils.post(
+                        "http://gateway.kugou.com/v2/album_audio/audio",
+                        headers = mapOf(
+                            "KG-THash" to "13a3164",
+                            "KG-RC" to "1",
+                            "KG-Fake" to "0",
+                            "KG-RF" to "00869891",
+                            "User-Agent" to "Android712-AndroidPhone-11451-376-0-FeeCacheUpdate-wifi",
+                            "x-router" to "kmr.service.kugou.com"
+                        ),
+                        body = mapOf(
+                            "area_code" to "1",
+                            "show_privilege" to 1,
+                            "show_album_info" to "1",
+                            "is_publish" to "",
+                            "appid" to 1005,
+                            "clientver" to 11451,
+                            "mid" to "1",
+                            "dfid" to "-",
+                            "clienttime" to System.currentTimeMillis(),
+                            "key" to "OIlwieks28dk2k092lksi2UIkp",
+                            "fields" to "album_info,author_name,audio_info,ori_audio_name,base,songname",
+                            "data" to batch.map { hash -> mapOf("hash" to hash) }
+                        )
+                    )
+                }.getOrNull() ?: continue
+                if (!response.isSuccessful) continue
+                val json = response.json(JsonObject::class.java) ?: continue
+                val data = json.safeGetArray("data")
+                if (json.get("error_code")?.asInt == 0 && data != null && data.size() > 0) {
+                    rows = data
+                    break
+                }
+            }
+            val dataRows = rows ?: continue
+            for (element in dataRows) {
+                val row = if (element.isJsonArray) {
+                    element.asJsonArray.firstOrNull()
+                } else element
+                val obj = row?.takeIf { it.isJsonObject }?.asJsonObject ?: continue
+                val item = runCatching { parseKgAudioInfo(obj) }.getOrNull() ?: continue
+                if (seen.add(item.audioId.ifEmpty { item.hash })) result.add(item)
+            }
+        }
+        return result
+    }
+
+    private fun parseKgAudioInfo(obj: JsonObject): KugouMusicItem? {
+        val audio = obj.safeGetObject("audio_info") ?: return null
+        val base = obj.safeGetObject("base") ?: JsonObject()
+        val albumInfo = obj.safeGetObject("album_info")
+        val hash = audio.get("hash")?.asString ?: audio.get("hash_128")?.asString ?: return null
+        if (hash.isEmpty()) return null
+
+        val hqHash = audio.get("hash_320")?.asString ?: ""
+        val sqHash = audio.get("hash_flac")?.asString ?: ""
+        val hrHash = audio.get("hash_high")?.asString ?: ""
+        val mp3Size = audio.get("filesize")?.asLong ?: audio.get("filesize_128")?.asLong ?: 0L
+        val hqSize = audio.get("filesize_320")?.asLong ?: 0L
+        val sqSize = audio.get("filesize_flac")?.asLong ?: 0L
+        val hrSize = audio.get("filesize_high")?.asLong ?: 0L
+        val qualities = mutableMapOf<String, Quality>()
+        if (mp3Size > 0) qualities["128k"] = Quality(
+            id = "128k", name = "普通音质 128K",
+            filesize = mp3Size, bitrate = 128, displaySize = formatSize(mp3Size)
+        )
+        if (hqHash.isNotEmpty() && hqSize > 0) qualities["320k"] = Quality(
+            id = "320k", name = "高品音质 320K",
+            filesize = hqSize, bitrate = 320, displaySize = formatSize(hqSize)
+        )
+        if (sqHash.isNotEmpty() && sqHash != SQ_ZERO_HASH && sqSize > 0) {
+            qualities["flac"] = Quality(
+                id = "flac", name = "无损音质 FLAC",
+                filesize = sqSize, bitrate = 2000, displaySize = formatSize(sqSize)
+            )
+        }
+        if (hrHash.isNotEmpty() && hrSize > 0) qualities["hires"] = Quality(
+            id = "hires", name = "无损音质 Hi-Res",
+            filesize = hrSize, bitrate = 4000, displaySize = formatSize(hrSize)
+        )
+        if (qualities.isEmpty()) return null
+
+        val audioId = base.get("album_audio_id")?.asString
+            ?: audio.get("album_audio_id")?.asString
+            ?: audio.get("audio_id")?.asString ?: ""
+        val artist = limitSingerCount(cleanText(
+            obj.get("author_name")?.asString ?: base.get("author_name")?.asString ?: ""
+        ))
+        val singers = obj.safeGetArray("authors")?.mapNotNull { element ->
+            val author = element.takeIf { it.isJsonObject }?.asJsonObject
+                ?: return@mapNotNull null
+            val authorBase = author.safeGetObject("base")
+            val name = author.get("author_name")?.asString
+                ?: authorBase?.get("author_name")?.asString ?: return@mapNotNull null
+            val singerId = author.get("author_id")?.asLong
+                ?: authorBase?.get("author_id")?.asLong ?: 0L
+            Singer(name = cleanText(name), singerId = singerId)
+        }?.filter { it.name.isNotBlank() }?.takeIf { it.isNotEmpty() }
+            ?: artist.split(SEPARATOR).map { Singer(name = it.trim()) }
+        val title = obj.get("songname")?.asString ?: base.get("audio_name")?.asString
+            ?: obj.get("ori_audio_name")?.asString ?: ""
+        val cover = (albumInfo?.get("sizable_cover")?.asString
+            ?: albumInfo?.get("cover")?.asString)?.replace("{size}", "480") ?: ""
+        val allHash = buildList {
+            add(hash)
+            if (hqHash.isNotEmpty()) add(hqHash)
+            if (sqHash.isNotEmpty() && sqHash != SQ_ZERO_HASH) add(sqHash)
+            if (hrHash.isNotEmpty()) add(hrHash)
+        }
+        return KugouMusicItem(
+            id = audioId.toLongOrNull() ?: 0L,
+            title = cleanText(title),
+            artist = artist,
+            album = cleanText(albumInfo?.get("album_name")?.asString ?: ""),
+            cover = cover,
+            duration = audio.get("timelength")?.asLong ?: audio.get("duration")?.asLong ?: 0L,
+            qualities = qualities,
+            mixsongmid = audioId.toLongOrNull() ?: 0L,
+            hash = hash,
+            allHash = allHash,
+            audioId = audioId,
+            albumId = albumInfo?.get("album_id")?.asString?.takeIf { it != "0" },
+            singers = singers
+        )
     }
 
     override fun getUserPlaylist(): List<PlayListInfoResult> {
@@ -421,6 +614,7 @@ class KgProvider : BaseProvider("kg") {
                 if (resp.get("error_code")?.asInt != 0) break
                 val data = resp.safeGetObject("data") ?: break
                 val playlists = data.safeGetArray("playlists") ?: break
+                if (playlists.size() == 0) break
 
                 for (i in 0 until playlists.size()) {
                     val pl = playlists[i].asJsonObject
@@ -973,39 +1167,59 @@ class KgProvider : BaseProvider("kg") {
         return MusicListResult(source, false, 0, items.size.coerceAtLeast(1), items)
     }
 
+    private data class CachedAlbumPayload(
+        val albumId: String,
+        val createdAt: Long,
+        val payload: JsonObject
+    )
+
+    private val albumPayloadLock = Any()
+    private var albumPayloadCache: CachedAlbumPayload? = null
+
     private fun fetchKgAlbumPayload(albumId: String): JsonObject? {
-        val time = System.currentTimeMillis() / 1000
-        val params = mapOf(
-            "album_id" to albumId,
-            "appid" to "1005",
-            "area_code" to "1",
-            "clienttime" to time.toString(),
-            "clientver" to "20669",
-            "dfid" to "-",
-            "is_buy" to "0",
-            "mid" to "-",
-            "page" to "1",
-            "pagesize" to "50",
-            "show_album_audios_timelength" to "1",
-            "show_album_info" to "1",
-            "show_album_tags" to "1",
-            "show_awards" to "1",
-            "show_classical_author" to "1",
-            "show_dycover" to "1",
-            "show_short_intro_v2" to "1",
-            "userid" to "0"
-        )
-        val signed = params + ("signature" to kgSign(params))
-        val url = "https://openapi.kugou.com/v1/union/album/audios?" + buildKgQuery(signed)
-        return try {
-            val resp = HTTPUtils.get(url)
-            if (!resp.isSuccessful) return null
-            val json = resp.json(JsonObject::class.java) ?: return null
-            if (json.get("status")?.asInt != 1) return null
-            json.safeGetObject("data")
-        } catch (e: Exception) {
-            Log.e(TAG, "fetchKgAlbumPayload failed", e)
-            null
+        synchronized(albumPayloadLock) {
+            val now = System.currentTimeMillis()
+            val cached = albumPayloadCache
+            if (cached != null && cached.albumId == albumId &&
+                now - cached.createdAt < 30_000L) {
+                return cached.payload
+            }
+            val params = mapOf(
+                "album_id" to albumId,
+                "appid" to "1005",
+                "area_code" to "1",
+                "clienttime" to (now / 1000).toString(),
+                "clientver" to "20669",
+                "dfid" to "-",
+                "is_buy" to "0",
+                "mid" to "-",
+                "page" to "1",
+                "pagesize" to "50",
+                "show_album_audios_timelength" to "1",
+                "show_album_info" to "1",
+                "show_album_tags" to "1",
+                "show_awards" to "1",
+                "show_classical_author" to "1",
+                "show_dycover" to "1",
+                "show_short_intro_v2" to "1",
+                "userid" to "0"
+            )
+            val signed = params + ("signature" to kgSign(params))
+            val url = "https://openapi.kugou.com/v1/union/album/audios?" + buildKgQuery(signed)
+            val payload = try {
+                val resp = HTTPUtils.get(url)
+                if (!resp.isSuccessful) return null
+                val json = resp.json(JsonObject::class.java) ?: return null
+                if (json.get("status")?.asInt != 1) return null
+                json.safeGetObject("data")
+            } catch (e: Exception) {
+                Log.e(TAG, "fetchKgAlbumPayload failed", e)
+                null
+            }
+            if (payload != null) {
+                albumPayloadCache = CachedAlbumPayload(albumId, now, payload)
+            }
+            return payload
         }
     }
 

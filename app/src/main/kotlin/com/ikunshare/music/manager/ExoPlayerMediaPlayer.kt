@@ -9,6 +9,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
@@ -48,6 +49,7 @@ class ExoPlayerMediaPlayer(
     private var activeMediaDataSource: MediaDataSource? = null
     private var currentVolume: Float = 1.0f
     private var currentSpeed: Float = 1.0f
+    private var preservesPitch: Boolean = true
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -207,18 +209,25 @@ class ExoPlayerMediaPlayer(
     }
 
     override fun setVolume(volume: Float) {
-        currentVolume = volume.coerceIn(0f, 1f)
+        currentVolume = normalizePlayerVolume(volume)
         player.volume = currentVolume
     }
 
     override fun getVolume(): Float = currentVolume
 
     override fun setPlaybackSpeed(speed: Float) {
-        currentSpeed = speed.coerceIn(0.25f, 3.0f)
-        player.setPlaybackSpeed(currentSpeed)
+        currentSpeed = normalizePlaybackRate(speed)
+        player.playbackParameters = PlaybackParameters(
+            currentSpeed, playbackPitchFor(currentSpeed, preservesPitch)
+        )
     }
 
     override fun getPlaybackSpeed(): Float = currentSpeed
+
+    override fun setPlaybackPreservesPitch(preserve: Boolean) {
+        preservesPitch = preserve
+        setPlaybackSpeed(currentSpeed)
+    }
 
     override fun setHandleAudioBecomingNoisy(enabled: Boolean) {
         player.setHandleAudioBecomingNoisy(enabled)

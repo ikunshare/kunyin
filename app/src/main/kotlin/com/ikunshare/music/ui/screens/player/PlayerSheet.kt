@@ -33,6 +33,8 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
@@ -127,6 +129,16 @@ fun PlayerSheetHost(
     val corner = 28.dp
     var heightPx by remember { mutableFloatStateOf(0f) }
     val progress = state.progress
+
+    // 播放页铺满全屏时，底下搜索框的输入法还开着，会一直顶住视口并把焦点留在被遮住的页面上。
+    // 打开即收回焦点，覆盖迷你播放器、点歌、通知跳转等所有入口。
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(state.settleRequest) {
+        if (state.settleRequest == 0 || !state.isOpen) return@LaunchedEffect
+        focusManager.clearFocus(force = true)
+        keyboard?.hide()
+    }
 
     LaunchedEffect(state.settleRequest) {
         if (state.settleRequest == 0) return@LaunchedEffect

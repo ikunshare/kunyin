@@ -22,9 +22,9 @@ import com.ikunshare.music.manager.UpdateChecker
 import com.ikunshare.music.model.Lyric
 import com.ikunshare.music.model.MusicItem
 import com.ikunshare.music.model.Quality
+import com.ikunshare.music.platform.am.AmProvider
 import com.ikunshare.music.platform.base.BaseProvider
 import com.ikunshare.music.platform.base.MediaInfoResult
-import com.ikunshare.music.platform.joox.JooxProvider
 import com.ikunshare.music.platform.kg.KgProvider
 import com.ikunshare.music.platform.kw.KwProvider
 import com.ikunshare.music.platform.qq.QQProvider
@@ -161,6 +161,15 @@ class MusicApplication : Application(), SingletonImageLoader.Factory {
             private set
     }
 
+    internal fun createProviders(): Map<String, BaseProvider> = mapOf(
+        "wy" to WyProvider(),
+        "qq" to QQProvider(),
+        "qqc" to com.ikunshare.music.platform.qqc.QqcProvider(),
+        "kg" to KgProvider(),
+        "kw" to KwProvider(),
+        "am" to AmProvider(),
+    )
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -180,14 +189,7 @@ class MusicApplication : Application(), SingletonImageLoader.Factory {
         com.ikunshare.music.platform.qq.device.QQDeviceManager.init(this)
 
         // 初始化音乐平台 Provider 映射
-        val providers: Map<String, BaseProvider> = mapOf(
-            "wy" to WyProvider(),
-            "qq" to QQProvider(),
-            "qqc" to com.ikunshare.music.platform.qqc.QqcProvider(),
-            "kg" to KgProvider(),
-            "kw" to KwProvider(),
-            "joox" to JooxProvider(),
-        )
+        val providers = createProviders()
 
         // 初始化凭据管理器并注入到 Provider
         credentialManager = CredentialManager(this)

@@ -35,7 +35,15 @@ data class MediaInfoResult(
     @SerializedName("quality") val quality: Quality,
     @SerializedName("musicItem") val musicItem: MusicItem,
     @SerializedName("rejectReason") val rejectReason: String? = null,
-    @SerializedName("encryptionInfo") val encryptionInfo: EncryptionInfo? = null
+    @SerializedName("encryptionInfo") val encryptionInfo: EncryptionInfo? = null,
+    @SerializedName("kind") val kind: String? = null,
+    @SerializedName("adamId") val adamId: String? = null,
+    @SerializedName("keyEndpoint") val keyEndpoint: String? = null,
+    @SerializedName("codec") val codec: String? = null,
+    @SerializedName("audioGroup") val audioGroup: String? = null,
+    @SerializedName("bitrate") val bitrate: Int? = null,
+    @SerializedName("sampleRate") val sampleRate: Int? = null,
+    @SerializedName("bitDepth") val bitDepth: Int? = null
 )
 
 data class PlayListInfoResult(

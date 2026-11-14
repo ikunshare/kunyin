@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,6 +48,8 @@ import com.ikunshare.music.ui.theme.LocalUiColors
 import com.kyant.shapes.RoundedRectangle
 
 val LocalSongListOperationsVisible = staticCompositionLocalOf { true }
+private val GLASS_CARD_SHAPE = RoundedRectangle(24.dp)
+private val PLAIN_CARD_SHAPE = RoundedCornerShape(12.dp)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -70,6 +73,16 @@ fun SongCard(
     val showPlayingIndicator = isPlaying && !selected
     val titleColor = if (showPlayingIndicator) MaterialTheme.colorScheme.tertiary
     else MaterialTheme.colorScheme.onSurface
+    val sourceTag = remember(song.getTypeDiscriminator()) {
+        MusicApplication.instance?.musicRepository?.getProvider(song.getTypeDiscriminator())?.shortTag
+    }
+    val artistAlbum = remember(song.artist, song.album) {
+        buildArtistAlbumText(song.artist, song.album)
+    }
+    val durationText = remember(song.duration) {
+        if (song.duration > 0) formatDuration(song.duration) else ""
+    }
+    val coverUrl = remember(song.cover) { neteaseCoverUrl(song.cover) }
 
     Surface(
         modifier = modifier
@@ -77,7 +90,7 @@ fun SongCard(
             .padding(horizontal = 16.dp, vertical = if (useGlass) 5.dp else 4.dp)
             .then(if (useGlass) Modifier.liquidGlass(selected = selected || isPlaying) else Modifier),
         color = if (useGlass) Color.Transparent else cardColor,
-        shape = if (useGlass) RoundedRectangle(24.dp) else RoundedCornerShape(12.dp),
+        shape = if (useGlass) GLASS_CARD_SHAPE else PLAIN_CARD_SHAPE,
         shadowElevation = if (useGlass || selected || cardColor.alpha < 1f) 0.dp else 2.dp
     ) {
         BoxWithConstraints {
@@ -127,7 +140,7 @@ fun SongCard(
                 }
             } else {
                 AsyncImage(
-                    model = neteaseCoverUrl(song.cover),
+                    model = coverUrl,
                     contentDescription = song.title,
                     modifier = Modifier
                         .size(56.dp)
@@ -148,8 +161,6 @@ fun SongCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    val sourceTag = MusicApplication.instance?.musicRepository
-                        ?.getProvider(song.getTypeDiscriminator())?.shortTag
                     if (sourceTag != null) {
                         Surface(
                             shape = RoundedCornerShape(4.dp),
@@ -165,7 +176,7 @@ fun SongCard(
                         Spacer(modifier = Modifier.width(4.dp))
                     }
                     Text(
-                        text = buildArtistAlbumText(song.artist, song.album),
+                        text = artistAlbum,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                         maxLines = 1,
@@ -178,7 +189,7 @@ fun SongCard(
             if (song.duration > 0) {
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = formatDuration(song.duration),
+                    text = durationText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                 )

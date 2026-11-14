@@ -1,0 +1,28 @@
+[package]
+name = "temari"
+version = "0.3.1"
+edition = "2021"
+description = "Apple Music FairPlay SAMPLE-AES sample decryption library (cdylib FFI)"
+license = "MIT"
+repository = "https://github.com/WorldObservationLog/Temari"
+readme = "README.md"
+keywords = ["decryption"]
+categories = ["cryptography", "multimedia"]
+rust-version = "1.70"
+
+# Temari 以 FFI 为主:库本身是纯 std(零第三方依赖),编译为 rlib + cdylib。
+# 网络服务(10020 TCP / gRPC Decrypt)与 CLI 工具已移出,见 tools/temari-decrypt。
+[lib]
+name = "temari"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[profile.test]
+opt-level = 3

@@ -18,9 +18,6 @@ sealed class Screen(val route: String) {
      */
     data object Search : Screen("search")
 
-    data object Charts : Screen("charts")
-    data object Discover : Screen("discover")
-
     /**
      * 播放页面 - 显示当前播放的歌曲
      * 

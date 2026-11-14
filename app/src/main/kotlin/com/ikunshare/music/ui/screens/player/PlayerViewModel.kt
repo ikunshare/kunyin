@@ -23,6 +23,9 @@ import com.ikunshare.music.database.PlaybackStateStore
 import com.ikunshare.music.database.Playlist
 import com.ikunshare.music.manager.MusicRepository
 import com.ikunshare.music.manager.SoundMediaPlayer
+import com.ikunshare.music.manager.effectivePlayerVolume
+import com.ikunshare.music.manager.normalizePlaybackRate
+import com.ikunshare.music.manager.normalizePlayerVolume
 import com.ikunshare.music.manager.TrialPlaybackRequests
 import com.ikunshare.music.model.LyricLine
 import com.ikunshare.music.model.MusicItem
@@ -33,13 +36,22 @@ import com.ikunshare.music.model.newQueueItems
 import com.ikunshare.music.model.resolveQueueSongIndex
 import com.ikunshare.music.model.removeQueueSongs
 import com.ikunshare.music.model.Quality
+import com.ikunshare.music.platform.am.AppleAudioCache
+import com.ikunshare.music.platform.am.AppleAudioSpec
+import com.ikunshare.music.platform.am.AppleMediaDataSource
+import com.ikunshare.music.platform.am.AppleTrackPreparer
+import com.ikunshare.music.platform.am.CachedAppleTrack
+import com.ikunshare.music.platform.am.PreparedAppleTrack
+import com.ikunshare.music.platform.base.MediaInfoResult
 import com.ikunshare.music.service.PlaybackService
 import com.ikunshare.music.tool.DecryptingMediaDataSource
 import com.ikunshare.music.tool.LyricParser
 import com.ikunshare.music.tool.cache.AudioCache
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -96,6 +108,7 @@ data class PlayerUiState(
     val currentLyricText: String = "",
     val currentLyricPushText: String = "",
     val volume: Float = 1.0f,
+    val muted: Boolean = false,
     val playbackSpeed: Float = 1.0f
 )
 
@@ -151,7 +164,19 @@ class PlayerViewModel(
         }
     }
 
-    private val _uiState = MutableStateFlow(PlayerUiState())
+    private val appleAudioCache by lazy {
+        audioCache?.let {
+            AppleAudioCache(java.io.File(context.cacheDir, "apple"), it.maxSizeBytes)
+        }
+    }
+
+    private val _uiState = MutableStateFlow(
+        PlayerUiState(
+            volume = normalizePlayerVolume(appSettingsManager.settings.value.playerVolume),
+            muted = appSettingsManager.settings.value.muted,
+            playbackSpeed = normalizePlaybackRate(appSettingsManager.settings.value.playbackRate)
+        )
+    )
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
     private val _currentPosition = MutableStateFlow(0L)
@@ -214,15 +239,13 @@ class PlayerViewModel(
 
     /** 自动跳过 Job（加载失败后延迟跳过） */
     private var autoSkipJob: Job? = null
+    private val failedSongKeys = mutableSetOf<String>()
 
     /** 后台缓存下载 Job（切歌时取消，避免脏下载占带宽） */
     private var cacheJob: Job? = null
 
-    /** QQ 音乐播放流水：累计实际播放时间（毫秒），暂停和 seek 期间不计 */
-    private var qqAccumulatedPlayMs: Long = 0L
-
-    /** QQ 音乐播放流水：上一次开始计时的时间戳 */
-    private var qqPlayStartTimestamp: Long = 0L
+    private val listenReportTracker = ListenReportTracker()
+    private val listenReportScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // ── 定时停止 ──
     private val _sleepTimerState = MutableStateFlow(SleepTimerState())
@@ -325,7 +348,7 @@ class PlayerViewModel(
             AudioManager.AUDIOFOCUS_LOSS -> {
                 // 永久焦点丢失：先恢复音量，暂停播放，并启动看门狗待对方停止后重新申请焦点
                 if (isDucking) {
-                    mediaPlayer.setVolume(_uiState.value.volume)
+                    mediaPlayer.setVolume(effectivePlayerVolume(_uiState.value.volume, _uiState.value.muted))
                     isDucking = false
                 }
                 val wasPlaying = _uiState.value.isPlaying
@@ -347,7 +370,7 @@ class PlayerViewModel(
                     "duck" -> {
                         // 其他应用未允许 duck，但用户偏好压低音量：仍执行压低
                         val pct = appSettingsManager.settings.value.audioDuckVolume / 100f
-                        mediaPlayer.setVolume(pct)
+                        mediaPlayer.setVolume(effectivePlayerVolume(pct, _uiState.value.muted))
                         isDucking = true
                     }
                 }
@@ -356,7 +379,7 @@ class PlayerViewModel(
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 if (behavior == "duck") {
                     val pct = appSettingsManager.settings.value.audioDuckVolume / 100f
-                    mediaPlayer.setVolume(pct)
+                    mediaPlayer.setVolume(effectivePlayerVolume(pct, _uiState.value.muted))
                     isDucking = true
                 } else if (behavior == "pause") {
                     val wasPlaying = _uiState.value.isPlaying
@@ -368,7 +391,7 @@ class PlayerViewModel(
             AudioManager.AUDIOFOCUS_GAIN -> {
                 cancelFocusResumeWatcher()
                 if (isDucking) {
-                    mediaPlayer.setVolume(_uiState.value.volume)
+                    mediaPlayer.setVolume(effectivePlayerVolume(_uiState.value.volume, _uiState.value.muted))
                     isDucking = false
                 }
                 if (behavior != "none" && wasPlayingBeforeFocusLoss && !_uiState.value.isPlaying) {
@@ -382,6 +405,25 @@ class PlayerViewModel(
     init {
         viewModelScope.launch {
             localMusicStore.removedPlaylistSongs.collect { removeFromQueue(it) }
+        }
+        viewModelScope.launch {
+            appSettingsManager.settings.map { it.preservesPitch }.distinctUntilChanged()
+                .collect { mediaPlayer.setPlaybackPreservesPitch(it) }
+        }
+        viewModelScope.launch {
+            appSettingsManager.settings.map { normalizePlaybackRate(it.playbackRate) }.distinctUntilChanged()
+                .collect { rate ->
+                    mediaPlayer.setPlaybackSpeed(rate)
+                    _uiState.update { it.copy(playbackSpeed = rate) }
+                }
+        }
+        viewModelScope.launch {
+            appSettingsManager.settings
+                .map { normalizePlayerVolume(it.playerVolume) to it.muted }.distinctUntilChanged()
+                .collect { (volume, muted) ->
+                    mediaPlayer.setVolume(effectivePlayerVolume(volume, muted))
+                    _uiState.update { it.copy(volume = volume, muted = muted) }
+                }
         }
         // 设置播放器回调
         setupMediaPlayerListeners()
@@ -643,8 +685,7 @@ class PlayerViewModel(
         mediaPlayer.setOnPreparedListener { duration ->
             errorRetrying = false
             mediaLoaded = true
-            qqAccumulatedPlayMs = 0L
-            qqPlayStartTimestamp = System.nanoTime() / 1_000_000L
+            failedSongKeys.clear()
             _uiState.update {
                 it.copy(
                     duration = duration,
@@ -654,8 +695,16 @@ class PlayerViewModel(
             }
             if (isLyriconEnabled()) MusicApplication.instance?.lyriconAdapter?.setPlaybackState(true)
             startProgressUpdates()
-            reportQQListening(0)
-            reportQQPlayRecently()
+            _uiState.value.currentSong?.let { song ->
+                dispatchListenReportEvents(
+                    listenReportTracker.loaded(
+                        song,
+                        _uiState.value.currentQuality?.id.orEmpty(),
+                        wyListenSourceId(_queueSource.value),
+                        playing = true
+                    )
+                )
+            }
         }
     }
 
@@ -689,6 +738,7 @@ class PlayerViewModel(
 
         if (_uiState.value.currentSong?.uniqueKey == song.uniqueKey) return
 
+        failedSongKeys.remove(song.uniqueKey)
         loadAndPlaySong(song)
     }
 
@@ -698,6 +748,7 @@ class PlayerViewModel(
     fun setPlaylist(songs: List<MusicItem>, startIndex: Int = 0, source: QueueSource? = null) {
         trialPlaybackRequests.invalidate()
         removedQueueKeys.clear()
+        failedSongKeys.clear()
         queuePersistenceJob?.cancel()
         _queueSource.value = source
         stopAfterQueueDrains = false
@@ -759,6 +810,7 @@ class PlayerViewModel(
                 loadAndPlaySong(target)
             } else {
                 loadJob?.cancel(); autoSkipJob?.cancel(); cacheJob?.cancel(); lyricJob?.cancel()
+                clearListenReport()
                 stopProgressUpdates()
                 mediaPlayer.stop()
                 mediaLoaded = false
@@ -844,8 +896,7 @@ class PlayerViewModel(
         loadJob?.cancel()
         autoSkipJob?.cancel()
         cacheJob?.cancel()
-        // 切歌时上报上一首的播放流水
-        reportQQPlayStream()
+        dispatchListenReportEvents(listenReportTracker.beforeLoad(song))
         requestAudioFocus()
         loadJob = viewModelScope.launch {
             // 停止当前播放
@@ -975,7 +1026,12 @@ class PlayerViewModel(
 
                 android.util.Log.d("KunSound", "Media URL resolved; encrypted=${ekey != null}")
 
-                if (ekey != null) {
+                if (songSource == "am") {
+                    // 缓存索引读写、HLS 解析与 moov 构建都是同步重活，不能在主线程上做。
+                    withContext(Dispatchers.IO) {
+                        prepareApplePlayback(mediaInfo, song, quality, audioCacheKey, startPosition)
+                    }
+                } else if (ekey != null) {
                     val ds = DecryptingMediaDataSource(playUrl, ekey, audioCache, audioCacheKey)
                     try {
                         withContext(Dispatchers.IO) { ds.awaitReady() }
@@ -1039,6 +1095,110 @@ class PlayerViewModel(
         }
     }
 
+    private suspend fun prepareApplePlayback(
+        mediaInfo: MediaInfoResult,
+        song: MusicItem,
+        quality: Quality,
+        audioCacheKey: String?,
+        startPosition: Long
+    ) {
+        val spec = AppleAudioSpec(
+            url = requireNotNull(mediaInfo.playUrl),
+            adamId = mediaInfo.adamId?.takeIf { it.isNotBlank() } ?: song.id.toString(),
+            keyEndpoint = mediaInfo.keyEndpoint?.takeIf { it.isNotBlank() } ?: "/music/key"
+        )
+        val cacheKey = audioCacheKey ?: "${song.getTypeDiscriminator()}_${song.id}_${quality.id}"
+        // 无损档缓存的是 ALAC 样本的扁平 m4a，设备上没有解码器，命中缓存同样无声。
+        // 这类档位不读也不写缓存，避免第二遍播放变哑；AAC 档缓存照旧。
+        val losslessAlac = quality.id == "flac" || quality.id == "hires"
+        val source = AppleTrackPreparer(
+            cache = if (losslessAlac) null else appleAudioCache,
+            cacheKey = { cacheKey }
+        ).prepareSource(spec)
+        try {
+            kotlin.coroutines.coroutineContext.ensureActive()
+            when (source) {
+                is CachedAppleTrack -> mediaPlayer.prepareAndPlay(source.file.absolutePath, startPosition)
+                is PreparedAppleTrack -> {
+                    // Android 没有系统 ALAC 解码器，无损档要自己解成 PCM 再包成 WAV 播放；
+                    // AAC 档（320k）有系统解码器，直接走原来的虚拟 MP4 数据源。
+                    val metadata = source.init.metadata
+                    val cookie = metadata.alacCookie
+                    if (metadata.isAlac && cookie != null) {
+                        playAppleAlac(source, cookie, startPosition)
+                    } else {
+                        mediaPlayer.prepareAndPlayWithDataSource(
+                            AppleMediaDataSource(source.newReader()),
+                            startPosition
+                        )
+                    }
+                }
+            }
+        } catch (error: Throwable) {
+            if (source is PreparedAppleTrack) source.close()
+            throw error
+        }
+    }
+
+    /**
+     * ALAC 无损档：用内置 ffmpeg 解码器把每个包解成 PCM，包一层 WAV 头交给 ExoPlayer。
+     * 读取器与解码器的生命周期都挂在数据源上，关闭时一起释放。
+     */
+    private suspend fun playAppleAlac(
+        source: PreparedAppleTrack,
+        cookie: ByteArray,
+        startPosition: Long
+    ) {
+        // cookie 里的 frameLength/sampleRate 有时是垃圾值，会让解码器以错误参数
+        // 初始化内部预测器，导致解码出噪音。用分片索引里的真实值覆盖。
+        val meta = source.init.metadata
+        val realFrameLength = source.header.sampleDurations.firstOrNull()?.let { duration ->
+            if (meta.timescale == meta.sampleRate.toLong() || meta.timescale <= 0L) duration
+            else (duration.toDouble() * meta.sampleRate / meta.timescale).toLong()
+        }?.coerceIn(1L, 16384L)?.toInt() ?: meta.frameLength.coerceIn(1L, 16384L).toInt()
+        android.util.Log.d("KunSound", "ALAC cookie repair: rawLen=${cookie.size} " +
+            "timescale=${meta.timescale} sampleRate=${meta.sampleRate} " +
+            "realFrameLength=$realFrameLength frameLength=${meta.frameLength} " +
+            "cookieHex=${cookie.take(28).joinToString("") { "%02x".format(it) }}")
+        val fixedCookie = com.ikunshare.music.platform.am.repairAlacCookie(
+            cookie, realFrameLength, meta.sampleRate
+        )
+        android.util.Log.d("KunSound", "ALAC cookie fixed: fixedHex=${fixedCookie.take(28).joinToString("") { "%02x".format(it) }} " +
+            "sampleDurations[0..2]=${source.header.sampleDurations.take(3)} " +
+            "sampleSizes[0..2]=${source.header.sampleSizes.take(3)} " +
+            "totalSamples=${source.header.sampleDurations.size}")
+        val decoder = com.ikunshare.music.platform.am.AlacNativeTemplate(fixedCookie)
+        val reader = try {
+            source.newReader()
+        } catch (error: Throwable) {
+            decoder.close()
+            throw error
+        }
+        val pcmSource = try {
+            com.ikunshare.music.platform.am.AppleAlacPcmSource(
+                decoder = decoder,
+                sampleOffsets = source.header.sampleOffsets,
+                sampleSizes = source.header.sampleSizes,
+                sampleDurations = source.header.sampleDurations,
+                timescale = source.init.metadata.timescale,
+                sampleRate = source.init.metadata.sampleRate,
+                readPacket = { offset, size ->
+                    kotlinx.coroutines.runBlocking { reader.read(offset, size) }
+                },
+                onClose = {
+                    runCatching { kotlinx.coroutines.runBlocking { reader.close() } }
+                    runCatching { source.close() }
+                }
+            )
+        } catch (error: Throwable) {
+            decoder.close()
+            runCatching { reader.close() }
+            throw error
+        }
+        kotlin.coroutines.coroutineContext.ensureActive()
+        mediaPlayer.prepareAndPlayWithDataSource(pcmSource, startPosition)
+    }
+
     private fun preparePlaybackResume() {
         wasPlayingBeforeFocusLoss = false
         cancelFocusResumeWatcher()
@@ -1058,11 +1218,7 @@ class PlayerViewModel(
         if (currentState.isPlaying) {
             mediaPlayer.pause()
             stopProgressUpdates()
-            // 累计播放时间
-            if (qqPlayStartTimestamp > 0) {
-                qqAccumulatedPlayMs += System.nanoTime() / 1_000_000L - qqPlayStartTimestamp
-                qqPlayStartTimestamp = 0L
-            }
+            listenReportTracker.playingChanged(false)
             // 进入暂停态：清除焦点恢复标志，避免 watcher 在用户手动暂停后误触发恢复。
             // 焦点丢失路径会在调用本函数之后重新置位 wasPlayingBeforeFocusLoss。
             wasPlayingBeforeFocusLoss = false
@@ -1072,6 +1228,7 @@ class PlayerViewModel(
                 false
             )
         } else {
+            failedSongKeys.clear()
             // MediaPlayer 未加载媒体（冷启动恢复后首次按播放）
             if (!mediaLoaded) {
                 val song = currentState.currentSong
@@ -1099,8 +1256,7 @@ class PlayerViewModel(
                         seekTo(0L)
                         preparePlaybackResume()
                         mediaPlayer.play()
-                        qqAccumulatedPlayMs = 0L
-                        qqPlayStartTimestamp = System.nanoTime() / 1_000_000L
+                        listenReportTracker.playingChanged(true)
                         startProgressUpdates()
                         _uiState.update { it.copy(isPlaying = true) }
                         return
@@ -1113,7 +1269,7 @@ class PlayerViewModel(
 
             preparePlaybackResume()
             mediaPlayer.play()
-            qqPlayStartTimestamp = System.nanoTime() / 1_000_000L
+            listenReportTracker.playingChanged(true)
             startProgressUpdates()
             _uiState.update { it.copy(isPlaying = true) }
             if (isLyriconEnabled()) MusicApplication.instance?.lyriconAdapter?.setPlaybackState(true)
@@ -1189,14 +1345,23 @@ class PlayerViewModel(
     private fun nextInternal() {
         if (_playlist.isEmpty()) return
         errorRetrying = false
+        if (failedSongKeys.isNotEmpty() && _playlist.none { it.uniqueKey !in failedSongKeys }) {
+            mediaPlayer.pause()
+            stopProgressUpdates()
+            _uiState.update {
+                it.copy(isPlaying = false, error = context.getString(R.string.queue_all_unavailable))
+            }
+            return
+        }
 
-        val playMode = _uiState.value.playMode
-
-        when (playMode) {
+        when (_uiState.value.playMode) {
             PlayMode.SEQUENTIAL -> {
-                if (currentIndex < _playlist.size - 1) {
-                    currentIndex++
-                    loadAndPlaySong(_playlist[currentIndex])
+                val target = nextEligibleSongIndex(
+                    _playlist.size, currentIndex, failedSongKeys, { _playlist[it].uniqueKey }, wrap = false
+                )
+                if (target != null) {
+                    currentIndex = target
+                    loadAndPlaySong(_playlist[target])
                 } else {
                     // 到末尾暂停，保留已加载状态，之后仍可恢复播放
                     mediaPlayer.pause()
@@ -1206,24 +1371,28 @@ class PlayerViewModel(
             }
 
             PlayMode.LIST_LOOP -> {
-                if (currentIndex < _playlist.size - 1) {
-                    currentIndex++
-                } else {
-                    currentIndex = 0
-                }
-                loadAndPlaySong(_playlist[currentIndex])
+                val target = nextEligibleSongIndex(
+                    _playlist.size, currentIndex, failedSongKeys, { _playlist[it].uniqueKey }, wrap = true
+                ) ?: return
+                currentIndex = target
+                loadAndPlaySong(_playlist[target])
             }
 
             PlayMode.SHUFFLE -> {
-                if (shuffledPlaylist.isEmpty()) {
-                    reshufflePlaylist()
-                }
-                if (shuffledIndex < shuffledPlaylist.size - 1) {
-                    shuffledIndex++
+                if (shuffledPlaylist.isEmpty()) reshufflePlaylist()
+                if (failedSongKeys.isEmpty()) {
+                    if (shuffledIndex < shuffledPlaylist.size - 1) {
+                        shuffledIndex++
+                    } else {
+                        // 播完一轮，重新打乱
+                        reshufflePlaylist()
+                        shuffledIndex = 0
+                    }
                 } else {
-                    // 播完一轮，重新打乱
-                    reshufflePlaylist()
-                    shuffledIndex = 0
+                    shuffledIndex = nextEligibleSongIndex(
+                        shuffledPlaylist.size, shuffledIndex, failedSongKeys,
+                        { shuffledPlaylist[it].uniqueKey }, wrap = true
+                    ) ?: return
                 }
                 val song = shuffledPlaylist[shuffledIndex]
                 currentIndex = _playlist.indexOf(song).coerceAtLeast(0)
@@ -1232,12 +1401,11 @@ class PlayerViewModel(
 
             PlayMode.SINGLE_LOOP, PlayMode.SINGLE_PLAY -> {
                 // 手动切歌：和列表循环一样顺序切到下一首
-                if (currentIndex < _playlist.size - 1) {
-                    currentIndex++
-                } else {
-                    currentIndex = 0
-                }
-                loadAndPlaySong(_playlist[currentIndex])
+                val target = nextEligibleSongIndex(
+                    _playlist.size, currentIndex, failedSongKeys, { _playlist[it].uniqueKey }, wrap = true
+                ) ?: return
+                currentIndex = target
+                loadAndPlaySong(_playlist[target])
             }
         }
     }
@@ -1277,16 +1445,28 @@ class PlayerViewModel(
      * 设置播放器音量
      */
     fun setVolume(volume: Float) {
-        val normalized = volume.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: return
-        mediaPlayer.setVolume(normalized)
-        _uiState.update { it.copy(volume = normalized) }
+        if (!volume.isFinite()) return
+        val normalized = normalizePlayerVolume(volume)
+        val muted = if (normalized > 0.0f) false else _uiState.value.muted
+        mediaPlayer.setVolume(effectivePlayerVolume(normalized, muted))
+        _uiState.update { it.copy(volume = normalized, muted = muted) }
+        appSettingsManager.update { copy(playerVolume = normalized, muted = muted) }
+    }
+
+    fun toggleMute() {
+        val muted = !_uiState.value.muted
+        mediaPlayer.setVolume(effectivePlayerVolume(_uiState.value.volume, muted))
+        _uiState.update { it.copy(muted = muted) }
+        appSettingsManager.update { copy(muted = muted) }
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        val normalized = speed.takeIf { it.isFinite() }?.coerceIn(0.25f, 3f) ?: return
+        if (!speed.isFinite()) return
+        val normalized = normalizePlaybackRate(speed)
         if (_uiState.value.playbackSpeed == normalized) return
         mediaPlayer.setPlaybackSpeed(normalized)
         _uiState.update { it.copy(playbackSpeed = normalized) }
+        appSettingsManager.update { copy(playbackRate = normalized) }
         // 同步到 MediaSession
         PlaybackService.getInstance()?.updatePlaybackState(
             _uiState.value.isPlaying,
@@ -1452,16 +1632,23 @@ class PlayerViewModel(
     /**
      * 安排自动跳过：加载失败后等待一段时间自动播放下一首
      *
-     * 单曲循环/单曲播放模式下或播放列表只有一首时不自动跳过。
+     * 设置关闭、单曲循环/单曲播放模式下或播放列表只有一首时不自动跳过。
      */
     private fun scheduleAutoSkip() {
         autoSkipJob?.cancel()
         val playMode = _uiState.value.playMode
-        if (_playlist.size <= 1) return
-        if (playMode == PlayMode.SINGLE_LOOP || playMode == PlayMode.SINGLE_PLAY) return
+        if (!shouldAutoSkipOnError(appSettingsManager.settings.value.autoSkipOnError, _playlist.size, playMode)) return
+        _uiState.value.currentSong?.let { failedSongKeys += it.uniqueKey }
+        if (_playlist.none { it.uniqueKey !in failedSongKeys }) {
+            _uiState.update { it.copy(error = context.getString(R.string.queue_all_unavailable)) }
+            return
+        }
         autoSkipJob = viewModelScope.launch {
             delay(AUTO_SKIP_DELAY_MS.milliseconds)
-            next()
+            val currentMode = _uiState.value.playMode
+            if (shouldAutoSkipOnError(appSettingsManager.settings.value.autoSkipOnError, _playlist.size, currentMode)) {
+                next()
+            }
         }
     }
 
@@ -1510,9 +1697,8 @@ class PlayerViewModel(
         }
         publishLyricAt(duration, isPlaying = false)
 
-        // QQ 音乐听歌上报
         reportQQListening(duration)
-        reportQQPlayStream()
+        flushListenReport()
 
         // 定时停止：歌曲完成时检查，如果触发了停止则不再播下一首
         if (onSleepTimerSongCompleted()) return
@@ -1556,8 +1742,7 @@ class PlayerViewModel(
                 // 单曲循环：从头播放
                 seekTo(0L)
                 mediaPlayer.play()
-                qqAccumulatedPlayMs = 0L
-                qqPlayStartTimestamp = System.nanoTime() / 1_000_000L
+                listenReportTracker.playingChanged(true)
                 startProgressUpdates()
                 _uiState.update { it.copy(isPlaying = true) }
             }
@@ -1893,6 +2078,7 @@ class PlayerViewModel(
             }
 
             SleepTimerAction.EXIT -> {
+                clearListenReport()
                 mediaPlayer.stop()
                 _uiState.update { it.copy(isPlaying = false) }
                 stopProgressUpdates()
@@ -1916,43 +2102,64 @@ class PlayerViewModel(
         val qqSongIds = _playlist
             .filterIsInstance<com.ikunshare.music.platform.qq.QQMusicItem>()
             .map { it.id }
-        viewModelScope.launch(Dispatchers.IO) {
+        listenReportScope.launch {
             qqProvider.reportListening(qqSong, songPlayTime, qqSongIds)
         }
     }
 
-    private fun reportQQPlayStream() {
-        val song = _uiState.value.currentSong
-        if (song == null || song.getTypeDiscriminator() != "qq") return
-        val qqSong = song as? com.ikunshare.music.platform.qq.QQMusicItem ?: return
-        val qqProvider = repository.getProvider("qq")
-                as? com.ikunshare.music.platform.qq.QQProvider ?: return
-        // 结算当前播放区间
-        if (qqPlayStartTimestamp > 0) {
-            qqAccumulatedPlayMs += System.nanoTime() / 1_000_000L - qqPlayStartTimestamp
-            qqPlayStartTimestamp = 0L
-        }
-        val playTimeSec = qqAccumulatedPlayMs / 1000
-        if (playTimeSec <= 0) return
-        val captured = playTimeSec
-        qqAccumulatedPlayMs = 0L
-        viewModelScope.launch(Dispatchers.IO) {
-            qqProvider.reportPlayStream(qqSong, captured)
+    private fun dispatchListenReportEvents(events: List<ListenReportEvent>) {
+        events.forEach { event ->
+            when (event.song.getTypeDiscriminator()) {
+                "qq" -> {
+                    val song = event.song as? com.ikunshare.music.platform.qq.QQMusicItem
+                        ?: return@forEach
+                    val provider = repository.getProvider("qq")
+                        as? com.ikunshare.music.platform.qq.QQProvider ?: return@forEach
+                    val songIds = if (event.kind == ListenReportKind.START) {
+                        _playlist.filterIsInstance<com.ikunshare.music.platform.qq.QQMusicItem>().map { it.id }
+                    } else {
+                        emptyList()
+                    }
+                    listenReportScope.launch {
+                        when (event.kind) {
+                            ListenReportKind.START -> {
+                                provider.reportListening(song, 0L, songIds)
+                                provider.reportPlayRecently(song)
+                            }
+                            ListenReportKind.END -> provider.reportPlayStream(song, event.playedSec)
+                        }
+                    }
+                }
+                "wy" -> {
+                    val song = event.song as? com.ikunshare.music.platform.wy.NeteaseMusicItem
+                        ?: return@forEach
+                    val provider = repository.getProvider("wy")
+                        as? com.ikunshare.music.platform.wy.WyProvider ?: return@forEach
+                    listenReportScope.launch {
+                        when (event.kind) {
+                            ListenReportKind.START -> provider.reportPlayStart(
+                                song, event.qualityId, event.sourceId
+                            )
+                            ListenReportKind.END -> provider.reportPlayEnd(
+                                song, event.qualityId, event.sourceId, event.playedSec
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
-    private fun reportQQPlayRecently() {
-        val song = _uiState.value.currentSong
-        if (song == null || song.getTypeDiscriminator() != "qq") return
-        val qqSong = song as? com.ikunshare.music.platform.qq.QQMusicItem ?: return
-        val qqProvider = repository.getProvider("qq")
-                as? com.ikunshare.music.platform.qq.QQProvider ?: return
-        viewModelScope.launch(Dispatchers.IO) {
-            qqProvider.reportPlayRecently(qqSong)
-        }
+    private fun flushListenReport() {
+        dispatchListenReportEvents(listOfNotNull(listenReportTracker.flush()))
+    }
+
+    private fun clearListenReport() {
+        dispatchListenReportEvents(listOfNotNull(listenReportTracker.clear()))
     }
 
     override fun onCleared() {
+        clearListenReport()
         super.onCleared()
         // 销毁前保存一次状态
         savePlaybackState()

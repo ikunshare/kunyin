@@ -19,6 +19,8 @@ import java.security.MessageDigest
 
 private const val APP_ID = "2000000638"
 private const val APP_KEY = "ZKFKQDruNqOogrgL"
+private val HTTP_SCHEME = Regex("^http:")
+private val COVER_SIZE = Regex("R\\d+x\\d+M000")
 private fun md5(value: String) = MessageDigest.getInstance("MD5").digest(value.toByteArray(Charsets.UTF_8))
     .joinToString("") { "%02x".format(it.toInt() and 255) }
 
@@ -83,7 +85,7 @@ internal class QQCoverEnrichment(
                 fun text(key: String) = obj.get(key)?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
                 val mid = text("song_mid")
                 if (mid in result) result[mid] = text("album_pic_500x500").ifBlank { text("album_pic") }
-                    .replace(Regex("^http:"), "https:").replace(Regex("R\\d+x\\d+M000"), "R800x800M000")
+                    .replace(HTTP_SCHEME, "https:").replace(COVER_SIZE, "R800x800M000")
             }
             return result
         } catch (cancelled: CancellationException) { throw cancelled }

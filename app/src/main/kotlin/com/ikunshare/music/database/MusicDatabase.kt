@@ -9,7 +9,7 @@ class MusicDatabase(context: Context) :
 
     companion object {
         private const val DATABASE_NAME = "kunyin_music.db"
-        private const val DATABASE_VERSION = 7
+        private const val DATABASE_VERSION = 8
 
         const val TABLE_SONGS = "songs"
         const val TABLE_PLAYLISTS = "playlists"
@@ -86,6 +86,7 @@ class MusicDatabase(context: Context) :
             )
         """
         )
+        createPlaylistPositionIndex(db)
 
         // 创建两个系统歌单：试听列表（在前）+ 我的收藏（在后）
         seedSystemPlaylists(db)
@@ -110,6 +111,16 @@ class MusicDatabase(context: Context) :
         if (oldVersion < 7) {
             migrateKugouIdentity(db)
         }
+        if (oldVersion < 8) {
+            createPlaylistPositionIndex(db)
+        }
+    }
+
+    private fun createPlaylistPositionIndex(db: SQLiteDatabase) {
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS idx_playlist_songs_position " +
+                "ON $TABLE_PLAYLIST_SONGS ($COL_PLAYLIST_ID, $COL_POSITION)"
+        )
     }
 
     /** V1 → V2 */

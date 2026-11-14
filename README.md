@@ -23,7 +23,7 @@
 - Kotlin / Jetpack Compose（Material 3）
 - Media3 ExoPlayer
 - OkHttp / Coil
-- C++（NDK，歌词解析与音频解密）
+- C++ / Rust（NDK，歌词解析与音频解密）
 
 运行要求：Android 7.0（API 24）及以上。
 
@@ -67,6 +67,7 @@
 - [LX Music](https://github.com/lyswhut/lx-music-desktop)：数据同步协议
 - [Kyant0/backdrop](https://github.com/Kyant0/AndroidLiquidGlass)：液态玻璃效果
 - [Lyricon](https://github.com/tomakino/lyricon)：状态栏歌词，仅引用SDK
+- [Temari](https://github.com/WorldObservationLog/Temari)：Apple Music 样本解密（MIT）
 
 ## 免责声明
 

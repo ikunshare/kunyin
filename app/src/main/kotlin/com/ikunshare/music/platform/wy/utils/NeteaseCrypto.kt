@@ -53,9 +53,11 @@ object NeteaseCrypto {
         }
     }
 
+    internal fun getDeviceId(): String = deviceId
+
     private const val APP_VER = "3.1.17.204416"
     private const val VERSION_CODE = "140"
-    private const val OS_VER = "Microsoft-Windows-10-Professional-build-19045-64bit"
+    internal const val OS_VER = "Microsoft-Windows-10-Professional-build-19045-64bit"
     private const val RESOLUTION = "1920x1080"
     private const val CHANNEL = "netease"
 

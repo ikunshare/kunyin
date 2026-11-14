@@ -20,8 +20,11 @@ data class HTTPResponse(
     val bodyBytes: ByteArray?,
     val headers: Map<String, String>
 ) {
-    private val gson = Gson()
     val isSuccessful: Boolean get() = status in 200..299
+
+    companion object {
+        private val gson = Gson()
+    }
 
     /**
      * 将 body 解析为指定的类对象
@@ -44,7 +47,6 @@ data class HTTPResponse(
         if (body != other.body) return false
         if (!bodyBytes.contentEquals(other.bodyBytes)) return false
         if (headers != other.headers) return false
-        if (gson != other.gson) return false
         if (isSuccessful != other.isSuccessful) return false
 
         return true
@@ -85,6 +87,13 @@ class HTTPUtils {
             return execute(requestBuilder.build())
         }
 
+        @JvmStatic
+        fun getBytes(url: String, headers: Map<String, String>? = null): HTTPResponse {
+            val requestBuilder = Request.Builder().url(url)
+            headers?.forEach { (k, v) -> requestBuilder.addHeader(k, v) }
+            return execute(requestBuilder.build(), includeText = false)
+        }
+
         fun getWithTimeout(url: String, timeoutMillis: Long): HTTPResponse = execute(
             Request.Builder().url(url).build(), client.newBuilder()
                 .callTimeout(timeoutMillis, TimeUnit.MILLISECONDS)
@@ -95,6 +104,12 @@ class HTTPUtils {
             val request = Request.Builder().url(url)
             headers?.forEach { (key, value) -> request.addHeader(key, value) }
             return executeCancellable(request.build())
+        }
+
+        suspend fun getBytesCancellable(url: String, headers: Map<String, String>? = null): HTTPResponse {
+            val request = Request.Builder().url(url)
+            headers?.forEach { (key, value) -> request.addHeader(key, value) }
+            return executeCancellable(request.build(), includeText = false)
         }
 
         suspend fun postCancellable(url: String, headers: Map<String, String>? = null, body: Any? = null): HTTPResponse {
@@ -110,7 +125,7 @@ class HTTPUtils {
         }
 
         /** Cancellation closes the actual call, including proxy waits and response-body reads. */
-        private suspend fun executeCancellable(request: Request): HTTPResponse = suspendCancellableCoroutine { continuation ->
+        private suspend fun executeCancellable(request: Request, includeText: Boolean = true): HTTPResponse = suspendCancellableCoroutine { continuation ->
             val call = cancellableClient.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
@@ -125,7 +140,8 @@ class HTTPUtils {
                             val headers = it.headers.names().associate { name ->
                                 name.lowercase() to it.headers.values(name).joinToString("; ")
                             }
-                            HTTPResponse(it.code, String(bytes, Charsets.UTF_8), bytes, headers)
+                            val text = if (includeText) String(bytes, Charsets.UTF_8) else null
+                            HTTPResponse(it.code, text, if (includeText) null else bytes, headers)
                         }
                     } catch (failure: IOException) {
                         HTTPResponse(0, failure.message, null, emptyMap())
@@ -179,7 +195,11 @@ class HTTPUtils {
             }
         }
 
-        private fun execute(request: Request, requestClient: OkHttpClient = client): HTTPResponse {
+        private fun execute(
+            request: Request,
+            requestClient: OkHttpClient = client,
+            includeText: Boolean = true
+        ): HTTPResponse {
             if (httpLogEnabled) {
                 Log.d(TAG, "→ ${request.method} ${request.url.host}")
                 request.headers.forEach { (name, _) -> Log.d(TAG, "  H: $name") }
@@ -187,7 +207,7 @@ class HTTPUtils {
             return try {
                 requestClient.newCall(request).execute().use { response ->
                     val bytes = response.body.bytes()
-                    val bodyString = String(bytes, Charsets.UTF_8)
+                    val bodyString = if (includeText) String(bytes, Charsets.UTF_8) else null
 
                     val responseHeaders = mutableMapOf<String, String>()
                     response.headers.forEach { pair ->
@@ -199,10 +219,15 @@ class HTTPUtils {
 
                     if (httpLogEnabled) {
                         Log.d(TAG, "← ${response.code} ${request.url.host}")
-                        Log.d(TAG, "  Body(${bodyString.length})")
+                        Log.d(TAG, "  Body(${bodyString?.length ?: bytes.size})")
                     }
 
-                    HTTPResponse(response.code, bodyString, bytes, responseHeaders)
+                    HTTPResponse(
+                        response.code,
+                        bodyString,
+                        if (includeText) null else bytes,
+                        responseHeaders
+                    )
                 }
             } catch (e: IOException) {
                 if (httpLogEnabled) Log.w(TAG, "✗ ${request.method} ${request.url.host}: ${e.message}")

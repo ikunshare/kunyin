@@ -41,8 +41,7 @@ import com.ikunshare.music.ui.KunyinViewModelFactory
 import com.ikunshare.music.ui.components.LocalLiquidGlassInMotion
 import com.ikunshare.music.ui.screens.album.AlbumScreen
 import com.ikunshare.music.ui.screens.artist.ArtistScreen
-import com.ikunshare.music.ui.screens.charts.ChartsScreen
-import com.ikunshare.music.ui.screens.discover.DiscoverScreen
+import com.ikunshare.music.ui.screens.discover.DiscoverTabScreen
 import com.ikunshare.music.ui.screens.download.DownloadScreen
 import com.ikunshare.music.ui.screens.player.LocalPlayerSheet
 import com.ikunshare.music.ui.screens.player.PlayerViewModel
@@ -162,10 +161,10 @@ fun SoundNavHost(
                             scaleX = scale
                             scaleY = scale
                         },
-                    // 4 个主页面全部保活：切到下载页查看进度再返回搜索时，
-                    // 搜索结果 / 滚动位置不被销毁重建（page 0 与 page 2 相距 2，
-                    // 原 beyondViewportPageCount=1 会处置搜索页导致 ViewModel 重建丢状态）。
-                    beyondViewportPageCount = if (warm) 3 else 0
+                    // 5 个主页面全部保活：切到下载页查看进度再返回搜索时，
+                    // 搜索结果 / 滚动位置不被销毁重建（page 0 与 page 3 相距 3，
+                    // beyondViewportPageCount 需覆盖整个范围）。
+                    beyondViewportPageCount = if (warm) 4 else 0
                 ) { page ->
                     // Pages kept alive off-screen may request bringIntoView (focused fields,
                     // selected chips); the barrier keeps that from scrolling the pager itself.
@@ -184,27 +183,27 @@ fun SoundNavHost(
                                 viewModelFactory = viewModelFactory
                             )
 
-                            2 -> DownloadScreen(
+                            2 -> DiscoverTabScreen(
+                                navController = navController,
+                                playerViewModel = playerViewModel,
+                                viewModelFactory = viewModelFactory
+                            )
+
+                            3 -> DownloadScreen(
                                 navController = navController,
                                 viewModelFactory = viewModelFactory
                             )
 
-                            3 -> SettingsScreen(
+                            4 -> SettingsScreen(
                                 navController = navController,
                                 viewModelFactory = viewModelFactory,
-                                isActive = pagerState.currentPage == 3 && currentEntry?.destination?.route == TABS_ROUTE
+                                isActive = pagerState.currentPage == 4 && currentEntry?.destination?.route == TABS_ROUTE
                             )
                         }
                     }
                 }
             }
         }
-
-        composable(Screen.Charts.route) {
-            ChartsScreen(navController, playerViewModel, viewModelFactory)
-        }
-
-        composable(Screen.Discover.route) { DiscoverScreen(navController, viewModelFactory) }
 
         // The player is a sheet now; keep its routes registered so Android can restore old
         // back stacks, and forward them to the sheet.

@@ -20,7 +20,10 @@ internal object SettingsBackupCodec {
         "floatingLyricsAlignment" to "lyrics.desktopAlign", "floatingLyricsFontSize" to "lyrics.desktopFontSize",
         "floatingLyricsBgOpacity" to "lyrics.desktopBgOpacity",
         "hideAiQualities" to "quality.blockAi", "defaultQualityId" to "player.preferredQuality",
-        "autoPlayOnRestart" to "player.autoPlay",
+        "autoPlayOnRestart" to "player.autoPlay", "autoSkipOnError" to "player.autoSkipOnError",
+        "preservesPitch" to "player.preservesPitch", "playbackRate" to "player.playbackRate",
+        "playerVolume" to "player.volume", "muted" to "player.muted",
+        "coverRounded" to "player.coverRounded",
         "maxConcurrentDownloads" to "download.maxConcurrent", "downloadNamingStyle" to "download.namingStyle",
         "downloadTrackNumber" to "download.trackNumberPrefix", "downloadDiscSubDir" to "download.discSubDir",
         "downloadAlbumCover" to "download.saveAlbumCover", "downloadSampleRateTag" to "download.appendQualityTag",
@@ -105,8 +108,12 @@ internal object SettingsBackupCodec {
             merged.add(field, actual.deepCopy()); count++
         }
         val restored = gson.fromJson(merged, AppSettings::class.java)
+        val normalized = restored.copy(
+            playbackRate = normalizePlaybackRate(restored.playbackRate),
+            playerVolume = normalizePlayerVolume(restored.playerVolume)
+        )
         return DecodedBackupSettings(if (supplied["floatingLyricsMaxLines"]?.isJsonNull == false)
-            restored.copy(floatingLyricsMaxLines = restored.floatingLyricsMaxLines.coerceIn(1, 6)) else restored, count)
+            normalized.copy(floatingLyricsMaxLines = normalized.floatingLyricsMaxLines.coerceIn(1, 6)) else normalized, count)
     }
 
     private fun get(root: JsonObject, path: String): JsonElement? {

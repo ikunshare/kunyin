@@ -103,6 +103,7 @@ import com.ikunshare.music.model.MusicItem
 import com.ikunshare.music.model.PlayMode
 import com.ikunshare.music.model.Quality
 import com.ikunshare.music.model.neteaseCoverUrl
+import com.ikunshare.music.model.qualityDisplayName
 import com.ikunshare.music.ui.screens.player.mesh.AlbumMeshBackground
 import com.ikunshare.music.ui.KunyinViewModelFactory
 import com.ikunshare.music.ui.components.AddToPlaylistDialog
@@ -339,10 +340,11 @@ fun PlayerScreen(
                 AdaptivePlayer(
                     state = uiState, lyrics = lyricsState, position = currentPosition,
                     backdrop = playerBackdrop, timerActive = sleepTimerState.isActive,
-                    onClose = onClose,
+                    coverRounded = appSettings.coverRounded, onClose = onClose,
                     onSeek = viewModel::seekTo, onPlayPause = viewModel::togglePlayPause,
                     onPrevious = viewModel::previous, onNext = viewModel::next,
-                    onVolume = viewModel::setVolume, onSpeed = viewModel::setPlaybackSpeed,
+                    onVolume = viewModel::setVolume, onMute = viewModel::toggleMute,
+                    onSpeed = viewModel::setPlaybackSpeed,
                     onMode = viewModel::cyclePlayMode, onFavorite = viewModel::toggleFavorite,
                     onMore = { showMoreActions = true }, onQuality = { showPlaybackQuality = true },
                     onQueue = { showPlayQueue = true }, onTimer = { showSleepTimer = true },
@@ -351,13 +353,16 @@ fun PlayerScreen(
                     onPhonetic = lyricsViewModel::togglePhonetic,
                     onRetryLyrics = { uiState.currentSong?.let { lyricsViewModel.retry(it) } },
                     keepControlsVisible = showPlayQueue || showSleepTimer || showMoreActions ||
-                        showPlaybackQuality || showPlaylistPicker || showCreateDialog || showComments
+                        showPlaybackQuality || showPlaylistPicker || showCreateDialog || showComments,
+                    preservePitch = appSettings.preservesPitch,
+                    onPreservePitch = { appSettingsManager.update { copy(preservesPitch = !preservesPitch) } }
                 )
             }
         }
         if (showPlaybackQuality) {
             QualityBottomSheet(
                 currentQuality = uiState.currentQuality, availableQualities = uiState.availableQualities,
+                source = uiState.currentSong?.getTypeDiscriminator(),
                 onQualitySelect = { viewModel.setQuality(it); showPlaybackQuality = false },
                 onDismiss = { showPlaybackQuality = false }
             )
@@ -611,6 +616,7 @@ private fun ApplePlayerMoreSheet(
                     standardQualities.forEachIndexed { index, quality ->
                         AppleMoreQualityRow(
                             quality = quality,
+                            source = song?.getTypeDiscriminator(),
                             busy = downloadBusy,
                             onClick = { onDownloadClick(quality) }
                         )
@@ -627,6 +633,7 @@ private fun ApplePlayerMoreSheet(
                     aiQualities.forEachIndexed { index, quality ->
                         AppleMoreQualityRow(
                             quality = quality,
+                            source = song?.getTypeDiscriminator(),
                             busy = downloadBusy,
                             onClick = { onDownloadClick(quality) }
                         )
@@ -715,6 +722,7 @@ private fun AppleMoreSectionLabel(
 @Composable
 private fun AppleMoreQualityRow(
     quality: Quality,
+    source: String?,
     busy: Boolean,
     onClick: () -> Unit
 ) {
@@ -722,7 +730,7 @@ private fun AppleMoreQualityRow(
         ?: if (quality.filesize > 0) formatFileSize(quality.filesize) else null
     AppleMoreActionRow(
         icon = Icons.Filled.Download,
-        title = quality.name,
+        title = qualityDisplayName(quality.id, source),
         subtitle = sizeText,
         trailingText = stringResource(if (busy) R.string.download_adding_tasks else R.string.download),
         enabled = !busy,
@@ -860,6 +868,7 @@ private fun AlbumCover(
 private fun QualityBottomSheet(
     currentQuality: Quality?,
     availableQualities: List<Quality>,
+    source: String?,
     onQualitySelect: (Quality) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -896,7 +905,7 @@ private fun QualityBottomSheet(
             }
 
             standardQualities.forEach { quality ->
-                QualitySheetItem(quality, currentQuality, onQualitySelect)
+                QualitySheetItem(quality, currentQuality, source, onQualitySelect)
             }
 
             if (aiQualities.isNotEmpty()) {
@@ -915,7 +924,7 @@ private fun QualityBottomSheet(
             }
 
             aiQualities.forEach { quality ->
-                QualitySheetItem(quality, currentQuality, onQualitySelect)
+                QualitySheetItem(quality, currentQuality, source, onQualitySelect)
             }
         }
     }
@@ -925,6 +934,7 @@ private fun QualityBottomSheet(
 private fun QualitySheetItem(
     quality: Quality,
     currentQuality: Quality?,
+    source: String?,
     onClick: (Quality) -> Unit
 ) {
     val isSelected = currentQuality?.id == quality.id
@@ -936,7 +946,7 @@ private fun QualitySheetItem(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            quality.name,
+            qualityDisplayName(quality.id, source),
             style = MaterialTheme.typography.bodyLarge,
             color = if (isSelected) MaterialTheme.colorScheme.tertiary
             else MaterialTheme.colorScheme.onSurface,

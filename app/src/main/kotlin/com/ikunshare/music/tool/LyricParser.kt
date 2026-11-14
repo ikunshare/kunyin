@@ -18,6 +18,7 @@ import kotlin.math.abs
  * 1. 标准 LRC 格式: [mm:ss.xx]text 或 [mm:ss.xxx]text
  * 2. 逐字歌词格式: [mm:ss.xxx]<mm:ss.xxx>char1<mm:ss.xxx>char2...
  * 3. 翻译歌词和音译歌词
+ * 4. 原始 iTunes/AMLL TTML（优先于 LRC，失败时回退）
  * 
  * **Validates: Requirements 4.1, 4.6**
  */

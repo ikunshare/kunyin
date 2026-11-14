@@ -12,6 +12,11 @@ import com.ikunshare.music.common.AppSettings
 import com.ikunshare.music.common.AppSettingsManager
 import com.ikunshare.music.model.MusicItem
 import com.ikunshare.music.model.Quality
+import com.ikunshare.music.platform.am.AlacDownloadMeta
+import com.ikunshare.music.platform.am.AppleAudioSpec
+import com.ikunshare.music.platform.am.AppleTrackDownloader
+import com.ikunshare.music.platform.base.MediaInfoResult
+import com.ikunshare.music.tool.audio.AlacToFlacConverter
 import com.ikunshare.music.service.DownloadService
 import com.ikunshare.music.tool.LyricFormatUtils
 import com.ikunshare.music.ui.screens.download.DownloadNamingStyle
@@ -58,6 +63,7 @@ class DownloadManager(
         private const val TAG = "DownloadManager"
         private const val TASKS_FILE = "download_tasks.json"
         private val MP3_QUALITY_IDS = setOf("128", "320", "128k", "320k", "mp3")
+        private val INVALID_FILE_CHARS = Regex("[\\\\/:*?\"<>|]")
 
         /** 默认下载目录：外部存储根目录下的 KUNSOUND，与设置页显示的默认值保持一致 */
         fun defaultDownloadDir(): File =
@@ -432,7 +438,7 @@ class DownloadManager(
             // 确定下载目录和文件名
             val settings = appSettingsManager.settings.value
             val downloadSubDir = downloadDiscDirectory(task, settings.downloadDiscSubDir)
-            val extension = if (task.qualityId in MP3_QUALITY_IDS) ".mp3" else ".flac"
+            val extension = if (task.source == "am") ".m4a" else if (task.qualityId in MP3_QUALITY_IDS) ".mp3" else ".flac"
             val namingStyle = DownloadNamingStyle.fromKey(settings.downloadNamingStyle)
             var baseName = buildFileName(task, namingStyle)
             var fileName = "$baseName$extension"
@@ -454,7 +460,6 @@ class DownloadManager(
 
             // 流式下载（HTTP 错误时刷新播放链接重试一次）
             withContext(Dispatchers.IO) {
-                var currentUrl = downloadUrl
                 var currentEkey: String? = encryptedEkey
                 val cancellationWatchers = mutableListOf<Job>()
 
@@ -467,7 +472,77 @@ class DownloadManager(
                     return call.execute()
                 }
 
-                try {
+                if (task.source == "am") {
+                    // Apple Music 的 playUrl 是 HLS 清单，必须重建分片解密样本再落盘。
+                    // ALAC 无损档下载完成后额外执行 ALAC→FLAC 转换，AAC 档直接落盘为 m4a。
+                    var lastUpdateTime = 0L
+                    var lastDownloaded = 0L
+                    val reportProgress: suspend (Long, Long) -> Unit = { downloaded, total ->
+                        val now = System.currentTimeMillis()
+                        if (lastUpdateTime == 0L || now - lastUpdateTime >= 500 || downloaded >= total) {
+                            val elapsed = (now - lastUpdateTime).coerceAtLeast(1L)
+                            val speed = if (lastUpdateTime == 0L) 0L
+                            else (downloaded - lastDownloaded) * 1000 / elapsed
+                            updateTask(taskKey) {
+                                it.copy(
+                                    progress = if (total > 0L) (downloaded.toFloat() / total).coerceIn(0f, 1f) * 0.8f else 0f,
+                                    downloadedBytes = downloaded,
+                                    totalBytes = if (total > 0L) total else it.totalBytes,
+                                    speedBytesPerSec = speed
+                                )
+                            }
+                            updateServiceNotification()
+                            lastUpdateTime = now
+                            lastDownloaded = downloaded
+                        }
+                    }
+                    var alacMeta: AlacDownloadMeta? = null
+                    try {
+                        alacMeta = downloadAppleTrack(mediaInfo, song, tempFile, reportProgress)
+                    } catch (t: Throwable) {
+                        if (t is CancellationException) throw t
+                        Log.w(TAG, "Apple download failed, refreshing play URL for $taskKey", t)
+                        repository.invalidateMediaInfoForSource(task.source, song, quality)
+                        val refreshed = repository.getMediaInfoForSource(task.source, song, quality)
+                        if (!refreshed.isSuccess || refreshed.playUrl.isNullOrBlank()) throw t
+                        tempFile.delete()
+                        alacMeta = downloadAppleTrack(refreshed, song, tempFile, reportProgress)
+                    }
+
+                    if (alacMeta != null) {
+                        // 无损档：ALAC m4a → FLAC，转换进度映射到 80%–100%。
+                        val flacTemp = File(tempFile.parent, tempFile.name + ".flac.tmp")
+                        try {
+                            AlacToFlacConverter.convert(
+                                source = tempFile,
+                                dest = flacTemp,
+                                meta = alacMeta
+                            ) { done, total ->
+                                currentCoroutineContext().ensureActive()
+                                val frac = if (total > 0L) done.toFloat() / total else 0f
+                                updateTask(taskKey) {
+                                    it.copy(progress = 0.8f + frac * 0.2f, speedBytesPerSec = 0)
+                                }
+                            }
+                            tempFile.delete()
+                            flacTemp.renameTo(tempFile)
+                            // 把 finalFile 改名为 .flac
+                            val flacFinalFile = File(finalFile.parentFile, finalFile.name.removeSuffix(".m4a") + ".flac")
+                            finalFile = flacFinalFile
+                            fileName = flacFinalFile.name
+                            baseName = fileName.removeSuffix(".flac")
+                        } catch (t: Throwable) {
+                            flacTemp.delete()
+                            if (t is CancellationException) throw t
+                            throw java.io.IOException("ALAC→FLAC 转换失败: ${t.message}", t)
+                        }
+                    }
+
+                    updateTask(taskKey) { it.copy(progress = 1f, speedBytesPerSec = 0) }
+                    // 分片已在下载器内解密，落盘的文件不能再走 MflacCrypto。
+                    currentEkey = null
+                } else try {
+                    var currentUrl = downloadUrl
                     var response = doDownload(currentUrl)
                     if (!response.isSuccessful) {
                         response.close()
@@ -798,6 +873,26 @@ class DownloadManager(
         result.playUrl?.takeIf { it.isNotBlank() } ?: error(result.rejectReason ?: "获取 MV 地址失败")
     }
 
+    /**
+     * Apple Music 下载：playUrl 指向 HLS 清单，需按分片重建虚拟 MP4 再落盘。
+     * AAC 档直接落盘为 m4a；ALAC 无损档返回 AlacDownloadMeta，调用方负责转 FLAC。
+     */
+    private suspend fun downloadAppleTrack(
+        mediaInfo: MediaInfoResult,
+        song: MusicItem,
+        outputFile: File,
+        onProgress: suspend (downloaded: Long, total: Long) -> Unit
+    ): AlacDownloadMeta? {
+        val url = mediaInfo.playUrl?.takeIf { it.isNotBlank() }
+            ?: throw java.io.IOException("Apple Music 播放链接为空")
+        val spec = AppleAudioSpec(
+            url = url,
+            adamId = mediaInfo.adamId?.takeIf { it.isNotBlank() } ?: song.id.toString(),
+            keyEndpoint = mediaInfo.keyEndpoint?.takeIf { it.isNotBlank() } ?: "/music/key"
+        )
+        return AppleTrackDownloader().download(spec, outputFile, onProgress).alacMeta
+    }
+
     private suspend fun executeVideoDownload(task: DownloadTask, song: MusicItem) {
         val execution = currentCoroutineContext()[Job]!!
         fun updateTask(key: String, transform: (DownloadTask) -> DownloadTask) {
@@ -1049,15 +1144,24 @@ class DownloadManager(
     }
 
     private fun updateServiceNotification() {
-        val tasks = _tasks.value
-        val downloadingCount = tasks.count { it.status == DownloadStatus.DOWNLOADING }
-        val waitingCount = tasks.count { it.status == DownloadStatus.WAITING }
-        val downloadingTasks = tasks.filter { it.status == DownloadStatus.DOWNLOADING }
-        val avgProgress = if (downloadingTasks.isNotEmpty()) {
-            downloadingTasks.map { it.progress }.average().toFloat()
+        val service = DownloadService.getInstance() ?: return
+        var downloadingCount = 0
+        var waitingCount = 0
+        var progressSum = 0.0
+        for (task in _tasks.value) {
+            when (task.status) {
+                DownloadStatus.DOWNLOADING -> {
+                    downloadingCount++
+                    progressSum += task.progress
+                }
+                DownloadStatus.WAITING -> waitingCount++
+                else -> Unit
+            }
+        }
+        val avgProgress = if (downloadingCount > 0) {
+            (progressSum / downloadingCount).toFloat()
         } else 0f
-        DownloadService.getInstance()
-            ?.updateNotification(downloadingCount, waitingCount, avgProgress)
+        service.updateNotification(downloadingCount, waitingCount, avgProgress)
     }
 
     private fun getDownloadDir(settingsPath: String): File {
@@ -1069,7 +1173,7 @@ class DownloadManager(
     }
 
     private fun buildFileName(task: DownloadTask, style: DownloadNamingStyle): String {
-        val sanitize = { s: String -> s.replace(Regex("[\\\\/:*?\"<>|]"), "_") }
+        val sanitize = { s: String -> s.replace(INVALID_FILE_CHARS, "_") }
         val base = when (style) {
             DownloadNamingStyle.ARTIST_TITLE -> "${sanitize(task.artist)} - ${sanitize(task.title)}"
             DownloadNamingStyle.TITLE_ARTIST -> "${sanitize(task.title)} - ${sanitize(task.artist)}"

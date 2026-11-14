@@ -18,9 +18,14 @@ class CachedChunkDataSource(
         const val CHUNK_SIZE = 2 * 1024 * 1024
     }
 
+    private var openChunkIndex = -1
+    private var openChunk: RandomAccessFile? = null
+    private var closed = false
+
+    @Synchronized
     override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
         if (size == 0) return 0
-        if (position >= totalSize) return -1
+        if (closed || position >= totalSize) return -1
 
         val endPos = minOf(position + size, totalSize)
         val startChunk = (position / CHUNK_SIZE).toInt()
@@ -42,15 +47,15 @@ class CachedChunkDataSource(
             if (toCopy <= 0) break
 
             try {
-                RandomAccessFile(chunkFile, "r").use { raf ->
-                    raf.seek(offsetInChunk.toLong())
-                    val read = raf.read(buffer, bufPos, toCopy)
-                    if (read > 0) {
-                        bufPos += read
-                        filePos += read
-                    }
+                val raf = openChunk(ci, chunkFile)
+                raf.seek(offsetInChunk.toLong())
+                val read = raf.read(buffer, bufPos, toCopy)
+                if (read > 0) {
+                    bufPos += read
+                    filePos += read
                 }
             } catch (_: Exception) {
+                closeOpenChunk()
                 return if (bufPos > offset) bufPos - offset else -1
             }
         }
@@ -59,7 +64,26 @@ class CachedChunkDataSource(
         return if (totalRead > 0) totalRead else -1
     }
 
+    private fun openChunk(index: Int, file: File): RandomAccessFile {
+        if (openChunkIndex == index) openChunk?.let { return it }
+        closeOpenChunk()
+        return RandomAccessFile(file, "r").also {
+            openChunk = it
+            openChunkIndex = index
+        }
+    }
+
+    private fun closeOpenChunk() {
+        runCatching { openChunk?.close() }
+        openChunk = null
+        openChunkIndex = -1
+    }
+
     override fun getSize(): Long = totalSize
 
-    override fun close() {}
+    @Synchronized
+    override fun close() {
+        closed = true
+        closeOpenChunk()
+    }
 }

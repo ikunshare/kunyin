@@ -288,8 +288,21 @@ class LocalMusicStore(context: Context) {
         }
     }
 
+    /**
+     * 设置「添加歌曲到列表时的位置」是否为顶部。
+     *
+     * 只影响手动添加（歌单、我的收藏）；试听列表按播放先后累积，调用方显式传 atHead，不走这里。
+     */
+    private fun defaultAddToTop(): Boolean =
+        com.ikunshare.music.MusicApplication.instance
+            ?.appSettingsManager?.settings?.value?.addToPlaylistPosition == "top"
+
     /** Wait for one ordered batch to commit before reporting success to the UI. */
-    suspend fun addSongsToPlaylist(playlistId: Long, items: List<MusicItem>): Int {
+    suspend fun addSongsToPlaylist(
+        playlistId: Long,
+        items: List<MusicItem>,
+        atTop: Boolean = defaultAddToTop()
+    ): Int {
         val snapshot = items.toList()
         if (snapshot.isEmpty()) return 0
         return withContext(Dispatchers.IO) {
@@ -303,7 +316,8 @@ class LocalMusicStore(context: Context) {
                     arrayOf(playlistId.toString())
                 ).use { it.moveToFirst() }
                 check(exists) { "Playlist no longer exists" }
-                added = appendSongsInTransaction(wdb, playlistId, snapshot)
+                added = if (atTop) prependSongsInTransaction(wdb, playlistId, snapshot)
+                        else appendSongsInTransaction(wdb, playlistId, snapshot)
                 wdb.setTransactionSuccessful()
             } finally {
                 wdb.endTransaction()
@@ -460,6 +474,47 @@ class LocalMusicStore(context: Context) {
             added++
         }
         return added
+    }
+
+    /**
+     * 批量插到歌单开头：已有歌曲整体后移，新歌按传入顺序占据 position 0..n-1，
+     * 因此选中的第一首落在最上面（等价于桌面版「倒着逐首头插」）。
+     * 已在歌单里的歌曲保持原位置不动——挪位置是排序功能的事。
+     */
+    private suspend fun prependSongsInTransaction(
+        wdb: SQLiteDatabase, playlistId: Long, items: List<MusicItem>
+    ): Int {
+        val existing = mutableSetOf<Pair<Long, String>>()
+        wdb.rawQuery(
+            "SELECT ${MusicDatabase.COL_SONG_ID}, ${MusicDatabase.COL_SOURCE} FROM ${MusicDatabase.TABLE_PLAYLIST_SONGS} WHERE ${MusicDatabase.COL_PLAYLIST_ID} = ?",
+            arrayOf(playlistId.toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) existing.add(cursor.getLong(0) to cursor.getString(1))
+        }
+        // 先确定真正要插入的条目，才能知道整体后移多少。
+        val pending = ArrayList<Pair<MusicItem, String>>()
+        for (item in items) pending.add(item to songSource(item))
+        val toInsert = pending.filter { existing.add(it.first.storageId to it.second) }
+        if (toInsert.isEmpty()) return 0
+
+        wdb.execSQL(
+            "UPDATE ${MusicDatabase.TABLE_PLAYLIST_SONGS} SET ${MusicDatabase.COL_POSITION} = ${MusicDatabase.COL_POSITION} + ? WHERE ${MusicDatabase.COL_PLAYLIST_ID} = ?",
+            arrayOf<Any>(toInsert.size, playlistId)
+        )
+        val addedAt = System.currentTimeMillis()
+        toInsert.forEachIndexed { index, (item, source) ->
+            coroutineContext.ensureActive()
+            upsertSong(wdb, item, source)
+            val values = ContentValues().apply {
+                put(MusicDatabase.COL_PLAYLIST_ID, playlistId)
+                put(MusicDatabase.COL_SONG_ID, item.storageId)
+                put(MusicDatabase.COL_SOURCE, source)
+                put(MusicDatabase.COL_ADDED_AT, addedAt)
+                put(MusicDatabase.COL_POSITION, index)
+            }
+            wdb.insertOrThrow(MusicDatabase.TABLE_PLAYLIST_SONGS, null, values)
+        }
+        return toInsert.size
     }
 
     /**
@@ -635,11 +690,16 @@ class LocalMusicStore(context: Context) {
         if (redirectCache.isEmpty()) return MusicItem.fromJsonString(songJson)
         val obj = JsonParser.parseString(songJson).asJsonObject
         val type = obj.get("type")?.asString ?: return MusicItem.fromJsonString(songJson)
-        val item = MusicItem.fromJson(obj)
-        val key = "${item.storageId}_${type}"
-        val target = redirectCache[key]
-        if (target == null || target.cover.isBlank()) return item
-        obj.addProperty("cover", target.cover)
+        val id = obj.get("id")?.asLong ?: 0L
+        val storageId = when (type) {
+            "kg", "kugou" -> com.ikunshare.music.platform.kg.kugouStorageId(
+                obj.get("hash")?.asString.orEmpty(), id,
+                obj.get("lyricDownloadId")?.takeIf { !it.isJsonNull }?.asString
+            )
+            else -> id
+        }
+        val target = redirectCache["${storageId}_$type"]
+        if (target != null && target.cover.isNotBlank()) obj.addProperty("cover", target.cover)
         return MusicItem.fromJson(obj)
     }
 
@@ -720,7 +780,7 @@ class LocalMusicStore(context: Context) {
             while (it.moveToNext()) {
                 val coverUrl = try {
                     val json = it.getString(jsonIdx)
-                    if (json != null) MusicItem.fromJsonString(json).cover else null
+                    if (json != null) JsonParser.parseString(json).asJsonObject.get("cover")?.asString else null
                 } catch (_: Exception) {
                     null
                 }

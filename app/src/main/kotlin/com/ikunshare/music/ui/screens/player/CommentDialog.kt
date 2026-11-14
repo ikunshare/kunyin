@@ -117,6 +117,7 @@ internal fun CommentDialog(song: MusicItem?, viewModel: CommentsViewModel, onDis
 private fun CommentContent(row: CommentRow, broken: MutableMap<String, Boolean>) {
     val item = row.item
     val avatar = remember(item.avatar) { playlistCoverUrl(item.avatar) }
+    val imageUrls = remember(item.images) { item.images.map(::playlistCoverUrl) }
     Row(Modifier.padding(start = (row.depth.coerceAtMost(4) * 12).dp)
         .background(if (row.depth > 0) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
             else MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp)).padding(vertical = 12.dp, horizontal = 6.dp),

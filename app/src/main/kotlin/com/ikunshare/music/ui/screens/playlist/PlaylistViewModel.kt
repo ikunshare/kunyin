@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -152,12 +154,12 @@ class PlaylistViewModel(
                     // 后台静默更新歌单信息
                     try {
                         val info = repository.getPlaylistInfoForSource(platformSource, actualId)
-                        if (info != null) {
+                        if (info != null && info != cachedInfo) {
                             withContext(Dispatchers.IO) {
                                 platformPlaylistStore.savePlaylistInfo(platformSource, actualId, info)
                             }
+                            _uiState.update { it.copy(playlistInfo = info) }
                         }
-                        if (info != null) _uiState.update { it.copy(playlistInfo = info) }
                     } catch (cancelled: kotlinx.coroutines.CancellationException) {
                         throw cancelled
                     } catch (_: Exception) {
@@ -183,9 +185,16 @@ class PlaylistViewModel(
                 val songsResult: com.ikunshare.music.platform.base.MusicListResult
 
                 if (platformSource != null) {
-                    // 平台歌单：使用 ForSource 方法
-                    playlistInfo = repository.getPlaylistInfoForSource(platformSource, actualId)
-                    songsResult = repository.getPlaylistSongsForSource(platformSource, actualId, 0, 100)
+                    coroutineScope {
+                        val infoRequest = async {
+                            repository.getPlaylistInfoForSource(platformSource, actualId)
+                        }
+                        val songsRequest = async {
+                            repository.getPlaylistSongsForSource(platformSource, actualId, 0, 100)
+                        }
+                        playlistInfo = infoRequest.await()
+                        songsResult = songsRequest.await()
+                    }
                 } else {
                     // 本地/当前 Provider 歌单
                     playlistInfo = repository.getPlaylistInfo(playlistId)

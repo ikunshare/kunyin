@@ -214,9 +214,10 @@ class FloatingLyricsManager(
     fun updateLyricState(
         currentLine: LyricLine?, position: Long, isPlaying: Boolean, playbackRate: Float
     ) {
+        val heightMayChange = lyricState.line !== currentLine || lyricState.playing != isPlaying
         lyricState = LyricState(currentLine, position, isPlaying, playbackRate)
         view?.updateLyricData(currentLine, position, isPlaying, playbackRate)
-        updateWindowHeight()
+        if (heightMayChange) updateWindowHeight()
     }
 
     fun clearLyric() {

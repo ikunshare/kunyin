@@ -108,7 +108,6 @@ internal val chartFallbacks: Map<String, List<ChartInfo>> = mapOf(
             ChartInfo("kg", "25028", "Beatport电子舞曲榜"),
             ChartInfo("kg", "4680", "英国单曲榜"),
             ChartInfo("kg", "38623", "韩国Melon音乐榜"),
-            ChartInfo("kg", "42807", "joox本地热歌榜"),
             ChartInfo("kg", "36107", "小语种热歌榜"),
             ChartInfo("kg", "4673", "日本公信榜"),
             ChartInfo("kg", "46868", "日本SPACE SHOWER榜"),

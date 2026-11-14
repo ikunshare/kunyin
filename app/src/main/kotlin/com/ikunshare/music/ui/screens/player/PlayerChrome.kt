@@ -20,6 +20,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -44,6 +45,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import com.ikunshare.music.model.PlayMode
 import com.ikunshare.music.model.neteaseCoverUrl
+import com.ikunshare.music.model.qualityDisplayName
 import com.ikunshare.music.ui.utils.onPointerCancel
 import com.ikunshare.music.ui.screens.lyrics.LyricCredits
 import com.ikunshare.music.ui.screens.lyrics.LyricsUiState
@@ -55,15 +57,17 @@ import com.kyant.shapes.Capsule
 @Composable
 internal fun AdaptivePlayer(
     state: PlayerUiState, lyrics: LyricsUiState, position: Long, backdrop: Backdrop,
-    timerActive: Boolean, onClose: () -> Unit, onSeek: (Long) -> Unit,
+    timerActive: Boolean, coverRounded: Boolean, onClose: () -> Unit, onSeek: (Long) -> Unit,
     onPlayPause: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit,
-    onVolume: (Float) -> Unit, onSpeed: (Float) -> Unit, onMode: () -> Unit,
+    onVolume: (Float) -> Unit, onMute: () -> Unit, onSpeed: (Float) -> Unit, onMode: () -> Unit,
     onFavorite: () -> Unit, onMore: () -> Unit, onQuality: () -> Unit,
     onQueue: () -> Unit, onTimer: () -> Unit,
     onTranslation: () -> Unit, onRomanization: () -> Unit, onPhonetic: () -> Unit,
     onRetryLyrics: () -> Unit,
     initialLyricsVisible: Boolean = false,
-    keepControlsVisible: Boolean = false
+    keepControlsVisible: Boolean = false,
+    preservePitch: Boolean = true,
+    onPreservePitch: () -> Unit = {}
 ) {
     val pager = rememberPagerState(initialPage = if (initialLyricsVisible) 1 else 0, pageCount = { 2 })
     val density = LocalDensity.current
@@ -96,9 +100,10 @@ internal fun AdaptivePlayer(
                                 Column {
                                     Spacer(Modifier.height(20.dp))
                                     PlayerControls(state, lyrics, position, backdrop, timerActive,
-                                        onSeek, onPlayPause, onPrevious, onNext, onVolume, onSpeed, onMode,
+                                        onSeek, onPlayPause, onPrevious, onNext, onVolume, onMute, onSpeed, onMode,
                                         onQuality, onQueue, onTimer, onTranslation, onRomanization, onPhonetic,
-                                        onSpeedMenu = { controls.menuOpen = it; controls.show() })
+                                        onSpeedMenu = { controls.menuOpen = it; controls.show() },
+                                        preservePitch = preservePitch, onPreservePitch = onPreservePitch)
                                 }
                             }
                         }
@@ -110,7 +115,7 @@ internal fun AdaptivePlayer(
                                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                                     PlayerCover(state.currentSong?.cover,
                                         Modifier.sizeIn(maxWidth = paneWidth, maxHeight = paneHeight)
-                                            .aspectRatio(1f, matchHeightConstraintsFirst = true))
+                                            .aspectRatio(1f, matchHeightConstraintsFirst = true), coverRounded)
                                 }
                                 Spacer(Modifier.height(24.dp))
                                 PlayerTrackInfo(state, backdrop, onFavorite, onMore)
@@ -122,7 +127,7 @@ internal fun AdaptivePlayer(
                                 .padding(vertical = 8.dp)) {
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    PlayerCover(state.currentSong?.cover, Modifier.size(56.dp))
+                                    PlayerCover(state.currentSong?.cover, Modifier.size(56.dp), coverRounded)
                                     Box(Modifier.weight(1f)) {
                                         PlayerTrackInfo(state, backdrop, onFavorite, onMore, compact = true)
                                     }
@@ -143,7 +148,7 @@ internal fun AdaptivePlayer(
                                 Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    PlayerCover(state.currentSong?.cover, Modifier.size(52.dp))
+                                    PlayerCover(state.currentSong?.cover, Modifier.size(52.dp), coverRounded)
                                     Box(Modifier.weight(1f)) { PlayerTrackInfo(state, backdrop, onFavorite, onMore, compact = true) }
                                 }
                                 PlayerLyricsPane(lyrics, state, position, onSeek, onRetryLyrics,
@@ -159,7 +164,7 @@ internal fun AdaptivePlayer(
                                 .verticalScroll(rememberScrollState()),
                                 horizontalAlignment = Alignment.CenterHorizontally) {
                                 Spacer(Modifier.height(coverTopGap))
-                                PlayerCover(state.currentSong?.cover, Modifier.size(coverSize))
+                                PlayerCover(state.currentSong?.cover, Modifier.size(coverSize), coverRounded)
                                 Spacer(Modifier.height(24.dp))
                                 PlayerTrackInfo(state, backdrop, onFavorite, onMore)
                             }
@@ -168,9 +173,10 @@ internal fun AdaptivePlayer(
                     PlayerControlsTransition(controlsVisible, Modifier.align(Alignment.BottomCenter)
                         .onSizeChanged { if (it.height > 0) portraitControlsHeight = it.height }) {
                         PlayerControls(state, lyrics, position, backdrop, timerActive,
-                            onSeek, onPlayPause, onPrevious, onNext, onVolume, onSpeed, onMode,
+                            onSeek, onPlayPause, onPrevious, onNext, onVolume, onMute, onSpeed, onMode,
                             onQuality, onQueue, onTimer, onTranslation, onRomanization, onPhonetic,
-                            onSpeedMenu = { controls.menuOpen = it; controls.show() })
+                            onSpeedMenu = { controls.menuOpen = it; controls.show() },
+                            preservePitch = preservePitch, onPreservePitch = onPreservePitch)
                     }
                 }
             }
@@ -194,9 +200,12 @@ private fun PlayerControlsTransition(visible: Boolean, modifier: Modifier = Modi
     }
 }
 
+internal fun playerCoverCornerRadius(rounded: Boolean) = if (rounded) 14.dp else 0.dp
+
 @Composable
-private fun PlayerCover(cover: String?, modifier: Modifier) {
-    Box(modifier.clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.08f)), contentAlignment = Alignment.Center) {
+private fun PlayerCover(cover: String?, modifier: Modifier, coverRounded: Boolean) {
+    Box(modifier.clip(RoundedCornerShape(playerCoverCornerRadius(coverRounded)))
+        .background(Color.White.copy(alpha = 0.08f)), contentAlignment = Alignment.Center) {
         if (!cover.isNullOrBlank()) AsyncImage(model = neteaseCoverUrl(cover), contentDescription = null,
             modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         else Icon(Icons.Default.MusicNote, null, tint = Color.White.copy(alpha = 0.45f), modifier = Modifier.size(56.dp))
@@ -264,14 +273,15 @@ private fun LyricLanguageButton(icon: ImageVector, label: String, selected: Bool
 @Composable
 private fun PlayerControls(state: PlayerUiState, lyrics: LyricsUiState, position: Long, backdrop: Backdrop, timer: Boolean,
     onSeek: (Long) -> Unit, onPlayPause: () -> Unit, onPrevious: () -> Unit,
-    onNext: () -> Unit, onVolume: (Float) -> Unit, onSpeed: (Float) -> Unit, onMode: () -> Unit,
+    onNext: () -> Unit, onVolume: (Float) -> Unit, onMute: () -> Unit, onSpeed: (Float) -> Unit, onMode: () -> Unit,
     onQuality: () -> Unit, onQueue: () -> Unit, onTimer: () -> Unit,
     onTranslation: () -> Unit, onRomanization: () -> Unit, onPhonetic: () -> Unit,
-    onSpeedMenu: (Boolean) -> Unit) {
+    onSpeedMenu: (Boolean) -> Unit, preservePitch: Boolean, onPreservePitch: () -> Unit) {
     var speedMenu by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().pointerInput(Unit) { detectTapGestures(onTap = { }) }
         .padding(top = 8.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        PlayerSeek(position, state.duration, state.currentSong?.uniqueKey, state.currentQuality?.name,
+        PlayerSeek(position, state.duration, state.currentSong?.uniqueKey,
+            state.currentQuality?.let { qualityDisplayName(it.id, state.currentSong?.getTypeDiscriminator()) },
             state.availableQualities.isNotEmpty(), onSeek, onQuality)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -285,8 +295,16 @@ private fun PlayerControls(state: PlayerUiState, lyrics: LyricsUiState, position
             PlayerIcon(Icons.Default.SkipNext, stringResource(R.string.next), backdrop, onClick = onNext, large = true)
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.AutoMirrored.Filled.VolumeDown, stringResource(R.string.volume), tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(18.dp))
-            PlayerTrackSlider(state.volume, onVolume, Modifier.weight(1f).padding(horizontal = 8.dp))
+            IconButton(onClick = onMute, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    if (state.muted || state.volume == 0.0f) Icons.AutoMirrored.Filled.VolumeOff
+                    else Icons.AutoMirrored.Filled.VolumeDown,
+                    stringResource(if (state.muted) R.string.unmute else R.string.mute),
+                    tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(18.dp)
+                )
+            }
+            PlayerTrackSlider(if (state.muted) 0.0f else state.volume, onVolume,
+                Modifier.weight(1f).padding(horizontal = 8.dp))
             Icon(Icons.AutoMirrored.Filled.VolumeUp, null, tint = Color.White.copy(alpha = 0.55f), modifier = Modifier.size(18.dp))
         }
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
@@ -308,6 +326,24 @@ private fun PlayerControls(state: PlayerUiState, lyrics: LyricsUiState, position
                     listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f).forEach { speed ->
                         DropdownMenuItem(text = { Text("${speed}×") }, onClick = { onSpeed(speed); speedMenu = false; onSpeedMenu(false) })
                     }
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(stringResource(R.string.preserve_pitch))
+                                if (!preservePitch) {
+                                    Text(
+                                        stringResource(R.string.preserve_pitch_off_hint),
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                        },
+                        trailingIcon = {
+                            Checkbox(checked = preservePitch, onCheckedChange = { onPreservePitch() })
+                        },
+                        onClick = onPreservePitch
+                    )
                 }
             }
             if (lyrics.hasTranslation) LyricLanguageButton(PlayerLyricIcons.Translation, stringResource(R.string.sub_line_translation),

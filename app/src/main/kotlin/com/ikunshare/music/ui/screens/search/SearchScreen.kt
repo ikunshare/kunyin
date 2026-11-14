@@ -45,7 +45,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -78,7 +77,9 @@ import com.ikunshare.music.ui.components.ScrollGlassScope
 import com.ikunshare.music.ui.components.SongCard
 import com.ikunshare.music.ui.components.SongContextMenu
 import com.ikunshare.music.ui.components.DiscoveryPlaylistCard
+import com.ikunshare.music.ui.utils.onPress
 import com.ikunshare.music.ui.utils.rememberPlaylistWriteActions
+import com.ikunshare.music.ui.utils.rememberSelectedKeys
 import com.ikunshare.music.ui.KunyinViewModelFactory
 import com.ikunshare.music.ui.navigation.Screen
 import com.ikunshare.music.ui.screens.player.PlayerViewModel
@@ -227,8 +228,7 @@ fun SearchScreen(
                         searchType = uiState.searchType,
                         supportedSearchTypes = uiState.supportedSearchTypes,
                         onSearchTypeSwitch = viewModel::switchSearchType,
-                        onFocusChange = { searchFocused = it },
-                        onOpenDiscovery = { navController.navigate(Screen.Discover.route) }
+                        onFocusChange = { searchFocused = it }
                     )
                 }
             },
@@ -690,7 +690,7 @@ private fun SearchResultsList(
 ) {
     val listState = rememberLazyListState()
     val bottomReserve = LocalFloatingBottomBarReserve.current
-    val selectedKeys by remember(selectedSongs) { derivedStateOf { selectedSongs.map { it.uniqueKey }.toHashSet() } }
+    val selectedKeys by rememberSelectedKeys(selectedSongs)
     RememberScrollOffsetReporter(listState)
 
     // 无限滚动检测
@@ -722,12 +722,9 @@ private fun SearchResultsList(
                 val density = LocalDensity.current
                 Box(
                     modifier = Modifier.pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                                event.changes.firstOrNull()?.let {
-                                    menuOffset = with(density) { DpOffset(it.position.x.toDp(), 0.dp) }
-                                }
+                        onPress { event ->
+                            event.changes.firstOrNull()?.let {
+                                menuOffset = with(density) { DpOffset(it.position.x.toDp(), 0.dp) }
                             }
                         }
                     }

@@ -20,7 +20,6 @@ import com.ikunshare.music.platform.base.MvUrlResult
 import com.ikunshare.music.platform.base.PlayListInfoResult
 import com.ikunshare.music.platform.base.ProviderCredentials
 import com.ikunshare.music.platform.base.SearchType
-import com.ikunshare.music.platform.joox.JooxProvider
 import com.ikunshare.music.platform.qq.device.QQDeviceManager
 import com.ikunshare.music.platform.qq.utils.QQMusicUtils
 import com.ikunshare.music.utils.HTTPUtils
@@ -1115,21 +1114,7 @@ class QQProvider : BaseProvider("qq") {
             Log.w(TAG, "QQ 旧歌词接口异常", e)
         }
 
-        // 3) JOOX 兜底：手动用同一个 songId 调 JOOX 歌词
-        try {
-            val jooxProvider = MusicApplication.instance?.musicRepository
-                ?.getProvider("joox") as? JooxProvider
-            val jooxLyric = jooxProvider?.fetchJooxLyric(item.id)
-            if (jooxLyric != null && !jooxLyric.isEmpty()) {
-                Log.d(TAG, "QQ 歌词回退至 JOOX 成功: id=${item.id}")
-                return jooxLyric
-            }
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            throw cancelled
-        } catch (e: Exception) {
-            Log.w(TAG, "QQ 歌词 JOOX 兜底失败", e)
-        }
-
+        // 3) 旧歌词接口也无结果
         return Lyric()
     }
 

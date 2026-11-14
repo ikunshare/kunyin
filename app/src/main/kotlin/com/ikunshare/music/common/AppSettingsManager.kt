@@ -3,6 +3,8 @@ package com.ikunshare.music.common
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import com.ikunshare.music.manager.normalizePlaybackRate
+import com.ikunshare.music.manager.normalizePlayerVolume
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -52,12 +54,18 @@ data class AppSettings(
     val downloadLrcInterludes: Boolean = false,
     val downloadOverwriteExisting: Boolean = false,
     val autoPlayOnRestart: Boolean = false,
+    val autoSkipOnError: Boolean = true,
+    val preservesPitch: Boolean = true,
+    val playbackRate: Float = 1.0f,
+    val playerVolume: Float = 1.0f,
+    val muted: Boolean = false,
     // 背景图（内置主题共用）
     val bgImagePath: String = "",
     val bgImageOnPlayer: Boolean = false,
     val bgOverlayOpacity: Float = 0.7f,
     // 封面模糊背景
     val coverBlurBg: Boolean = true,
+    val coverRounded: Boolean = true,
     // 底栏不透明度
     val bottomBarOpacity: Float = 1.0f,
     // 桌面歌词设置
@@ -114,7 +122,10 @@ data class AppSettings(
     // 歌手页专辑列表模式（true=单行列表，false=网格）
     val albumListMode: Boolean = false,
     val albumSortAsc: Boolean = false,
-    val showListOperationButtons: Boolean = true
+    val showListOperationButtons: Boolean = true,
+    // 添加歌曲到列表时的位置："top" 插到开头，"bottom" 追加到末尾。
+    // 只影响手动添加（歌单、我的收藏）；试听列表按播放先后累积，不受此设置影响。
+    val addToPlaylistPosition: String = "bottom"
 )
 
 internal fun AppSettings.withExclusiveFloatingLyricSubLine(previous: AppSettings? = null): AppSettings {
@@ -196,10 +207,16 @@ class AppSettingsManager(context: Context) {
         downloadLrcInterludes = prefs.getBoolean("download_lrc_interludes", false),
         downloadOverwriteExisting = prefs.getBoolean("download_overwrite_existing", false),
         autoPlayOnRestart = prefs.getBoolean("auto_play_on_restart", false),
+        autoSkipOnError = prefs.getBoolean("auto_skip_on_error", true),
+        preservesPitch = prefs.getBoolean("preserves_pitch", true),
+        playbackRate = normalizePlaybackRate(prefs.getFloat("playback_rate", 1.0f)),
+        playerVolume = normalizePlayerVolume(prefs.getFloat("player_volume", 1.0f)),
+        muted = prefs.getBoolean("player_muted", false),
         bgImagePath = prefs.getString("bg_image_path", "") ?: "",
         bgImageOnPlayer = prefs.getBoolean("bg_image_on_player", false),
         bgOverlayOpacity = prefs.getFloat("bg_overlay_opacity", 0.7f),
         coverBlurBg = prefs.getBoolean("cover_blur_bg", true),
+        coverRounded = prefs.getBoolean("cover_rounded", true),
         bottomBarOpacity = prefs.getFloat("bottom_bar_opacity", 1.0f),
         floatingLyricsEnabled = prefs.getBoolean("floating_lyrics_enabled", false),
         floatingLyricsKaraoke = prefs.getBoolean("floating_lyrics_karaoke", true),
@@ -252,6 +269,8 @@ class AppSettingsManager(context: Context) {
         trialListAddToHead = prefs.getBoolean("trial_list_add_to_head", false),
         autoOpenPlayerOnSongClick = prefs.getBoolean("auto_open_player_on_song_click", true),
         showListOperationButtons = prefs.getBoolean("show_list_operation_buttons", true),
+        addToPlaylistPosition = prefs.getString("add_to_playlist_position", "bottom")
+            ?.takeIf { it == "top" || it == "bottom" } ?: "bottom",
         albumListMode = prefs.getBoolean("album_list_mode", false),
         albumSortAsc = prefs.getBoolean("album_sort_asc", false)
     ).withExclusiveFloatingLyricSubLine()
@@ -292,10 +311,16 @@ class AppSettingsManager(context: Context) {
             .putBoolean("download_lrc_interludes", new.downloadLrcInterludes)
             .putBoolean("download_overwrite_existing", new.downloadOverwriteExisting)
             .putBoolean("auto_play_on_restart", new.autoPlayOnRestart)
+            .putBoolean("auto_skip_on_error", new.autoSkipOnError)
+            .putBoolean("preserves_pitch", new.preservesPitch)
+            .putFloat("playback_rate", normalizePlaybackRate(new.playbackRate))
+            .putFloat("player_volume", normalizePlayerVolume(new.playerVolume))
+            .putBoolean("player_muted", new.muted)
             .putString("bg_image_path", new.bgImagePath)
             .putBoolean("bg_image_on_player", new.bgImageOnPlayer)
             .putFloat("bg_overlay_opacity", new.bgOverlayOpacity)
             .putBoolean("cover_blur_bg", new.coverBlurBg)
+            .putBoolean("cover_rounded", new.coverRounded)
             .putFloat("bottom_bar_opacity", new.bottomBarOpacity)
             .putBoolean("floating_lyrics_enabled", new.floatingLyricsEnabled)
             .putBoolean("floating_lyrics_karaoke", new.floatingLyricsKaraoke)
@@ -338,6 +363,7 @@ class AppSettingsManager(context: Context) {
             .putBoolean("trial_list_add_to_head", new.trialListAddToHead)
             .putBoolean("auto_open_player_on_song_click", new.autoOpenPlayerOnSongClick)
             .putBoolean("show_list_operation_buttons", new.showListOperationButtons)
+            .putString("add_to_playlist_position", new.addToPlaylistPosition)
             .putBoolean("album_list_mode", new.albumListMode)
             .putBoolean("album_sort_asc", new.albumSortAsc)
             .apply()

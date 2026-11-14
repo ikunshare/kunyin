@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import java.io.IOException
@@ -111,20 +113,25 @@ class ArtistViewModel(
                 )
         loadJob = viewModelScope.launch {
             try {
-                try {
-                    val info = repository.getArtistInfoForSource(src, id)
-                    _uiState.update { it.copy(artistInfo = ArtistPreviewCache.merge(info, it.artistInfo)) }
-                } catch (cancelled: CancellationException) { throw cancelled }
-                catch (failure: Exception) { _uiState.update { it.copy(error = failure.message ?: "歌手信息加载失败") } }
-                val songResult = repository.getArtistSongsForSource(src, id, 0, SONG_PAGE_SIZE)
-                check(!songResult.hasNext || songResult.result.isNotEmpty()) { "歌曲分页返回空内容，请重试" }
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        songs = songResult.result.distinctBy { song -> song.uniqueKey },
-                        songsHasMore = songResult.hasNext && songResult.result.isNotEmpty(),
-                        songsPage = 0
-                    )
+                coroutineScope {
+                    val infoRequest = async {
+                        try {
+                            val info = repository.getArtistInfoForSource(src, id)
+                            _uiState.update { it.copy(artistInfo = ArtistPreviewCache.merge(info, it.artistInfo)) }
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (failure: Exception) { _uiState.update { it.copy(error = failure.message ?: "歌手信息加载失败") } }
+                    }
+                    val songResult = repository.getArtistSongsForSource(src, id, 0, SONG_PAGE_SIZE)
+                    check(!songResult.hasNext || songResult.result.isNotEmpty()) { "歌曲分页返回空内容，请重试" }
+                    infoRequest.await()
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            songs = songResult.result.distinctBy { song -> song.uniqueKey },
+                            songsHasMore = songResult.hasNext && songResult.result.isNotEmpty(),
+                            songsPage = 0
+                        )
+                    }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled

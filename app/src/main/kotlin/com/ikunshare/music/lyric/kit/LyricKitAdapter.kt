@@ -40,8 +40,8 @@ data class LyricTransformOptions(
 /**
  * 适配器：把歌词工具包（kit）解析出的 Runtime.Info 转换为 app 现有的 ParsedLyric。
  *
- * 主歌词走 kit 的 LRC 管线（自动识别逐字/逐行）+ 按 [LyricTransformOptions] 选择性执行 transform；
- * 辅助轨在变换前按原始行槽或 50ms 时间窗口对齐，避免提取制作信息后错位。
+ * 原始 TTML 优先走独立管线；其他主歌词走 kit 的 LRC 管线并按 [LyricTransformOptions] 执行 transform。
+ * LRC 辅助轨在变换前按原始行槽或 50ms 时间窗口对齐，避免提取制作信息后错位。
  */
 object LyricKitAdapter {
 
@@ -52,13 +52,15 @@ object LyricKitAdapter {
         musicInfo: MusicInfo? = null,
         transforms: LyricTransformOptions = LyricTransformOptions(),
     ): ParsedLyric {
-        val original = LyricTextRules.clean(lyric.char.ifBlank { lyric.lrc })
-        if (original.isBlank() && lyric.lrc.isBlank()) return ParsedLyric.EMPTY
+        val ttmlInfo = if (lyric.ttml.isBlank()) null else runTtml(lyric.ttml, musicInfo)
+        val original = if (ttmlInfo == null) LyricTextRules.clean(lyric.char.ifBlank { lyric.lrc }) else ""
+        if (ttmlInfo == null && original.isBlank() && lyric.lrc.isBlank()) return ParsedLyric.EMPTY
 
-        val translation = LyricTextRules.align(original, LyricTextRules.clean(lyric.trans, annotation = true))
-        val roman = LyricTextRules.align(original,
+        val translation = if (ttmlInfo != null) "" else
+            LyricTextRules.align(original, LyricTextRules.clean(lyric.trans, annotation = true))
+        val roman = if (ttmlInfo != null) "" else LyricTextRules.align(original,
             LyricTextRules.clean(lyric.chroma.ifBlank { lyric.roma }, annotation = true))
-        val mainInfo = runMain(original, musicInfo, transforms, translation, LyricTextRules.stripWordTags(roman))
+        val mainInfo = ttmlInfo ?: runMain(original, musicInfo, transforms, translation, LyricTextRules.stripWordTags(roman))
         val mainLines = mainInfo.lines.filterIsInstance<LineNormal>()
         val credits = mainInfo.meta?.credits.orEmpty().groupBy { it.role.trim() }.mapNotNull { (role, rows) ->
             val names = rows.flatMap { it.names }.map { it.content.trim() }.filter { it.isNotEmpty() }.distinct()
@@ -193,6 +195,25 @@ object LyricKitAdapter {
     private fun parseInner(tag: String): Int? {
         val m = markerInnerRegex.matchEntire(tag.trim()) ?: return null
         return com.ikunshare.music.lyric.kit.util.TextUtil.parseTime(m.groupValues[1].trim())
+    }
+
+    private fun runTtml(content: String, musicInfo: MusicInfo?): Info? = try {
+        val pipeline = LyricPipeline(
+            LyricPipelineInput(content = content, format = "ttml-itunes", musicInfo = musicInfo)
+        )
+        pipeline.parse()
+        pipeline.pureClean()
+        pipeline.pureExtractCreator()
+        pipeline.backgroundClean()
+        pipeline.interludeInsert()
+        pipeline.spaceInsert()
+        pipeline.stressMark(StressMarkConfig(checkTime = 3000))
+        pipeline.languageInfer()
+        pipeline.languageCalculatePercent()
+        val result = pipeline.final().result
+        result.takeIf { it.lines.any { line -> line is LineNormal } }
+    } catch (_: Exception) {
+        null
     }
 
     /** 主歌词管线：LRC 解析 + 词时长补全 + 按选项执行 transform。 */

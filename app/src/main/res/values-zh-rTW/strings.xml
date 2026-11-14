@@ -130,6 +130,7 @@
     <string name="bg_set">已設定</string>
     <string name="bg_not_set">未設定</string>
     <string name="cover_blur_bg">詳情頁封面背景</string>
+    <string name="player_cover_rounded">封面使用圓角</string>
     <string name="language_label">語言</string>
     <string name="language_system">跟隨系統</string>
     <string name="language_zh_cn">简体中文</string>
@@ -141,6 +142,10 @@
     <string name="show_phonetic">顯示 AI 諧音</string>
     <string name="hide_ai_qualities">遮蔽 AI 音質</string>
     <string name="auto_play_on_restart">啟動後自動播放</string>
+    <string name="auto_skip_on_error">播放失敗後自動跳過</string>
+    <string name="queue_all_unavailable">佇列中的歌曲均無法播放，請檢查網路或更換音源</string>
+    <string name="preserve_pitch">保持音調</string>
+    <string name="preserve_pitch_off_hint">關閉後變速會同時改變音調</string>
     <string name="default_quality">預設播放音質</string>
 
     <!-- 設定頁 - 桌面歌詞 -->
@@ -299,6 +304,8 @@
     <string name="quality_select">音質選擇</string>
     <string name="no_cover">無封面</string>
     <string name="volume">音量</string>
+    <string name="mute">靜音</string>
+    <string name="unmute">取消靜音</string>
     <string name="play_queue">播放列表</string>
     <string name="play_queue_title">目前播放列表</string>
     <string name="clear_main_queue">清空主佇列</string>
@@ -677,4 +684,8 @@
     <string name="section_list">列表設定</string>
     <string name="settings_summary_list">歌曲列表操作按鈕</string>
     <string name="list_settings_artist_hint">歌手頁的專輯排列方式與排序方向在該頁面內切換。</string>
+    <string name="add_to_playlist_position">新增歌曲到列表時的位置</string>
+    <string name="position_top">頂部</string>
+    <string name="position_bottom">底部</string>
+    <string name="add_to_playlist_position_desc">新增到歌單、我的收藏時插在開頭還是末尾。試聽列表是播放時自動累積的，始終按播放先後附加。</string>
 </resources>

@@ -416,7 +416,7 @@ internal fun AppearanceSection(
                             if (parsed.bgUrl.isNotBlank()) {
                                 var dest: File? = null
                                 try {
-                                    val resp = com.ikunshare.music.utils.HTTPUtils.get(parsed.bgUrl)
+                                    val resp = com.ikunshare.music.utils.HTTPUtils.getBytes(parsed.bgUrl)
                                     resp.bodyBytes?.let { bytes ->
                                         val ext = parsed.bgExt.lowercase()
                                             .filter { it.isLetterOrDigit() }

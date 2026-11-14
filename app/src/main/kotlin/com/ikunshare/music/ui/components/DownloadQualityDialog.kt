@@ -29,7 +29,7 @@ import com.ikunshare.music.R
 
 private val allQualities = listOf(
     "master" to "臻品母带",
-    "atmos_plus" to "臻品全景声 2.0",
+    "atmos_plus" to "高清臻音",
     "atmos" to "臻品全景声",
     "hires" to "Hi-Res",
     "flac" to "无损 FLAC",

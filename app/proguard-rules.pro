@@ -63,3 +63,5 @@
 -keepclassmembers class com.ikunshare.music.platform.kg.KgCredentials { <fields>; }
 -keepclassmembers class com.ikunshare.music.platform.kw.KwCredentials { <fields>; }
 -keepclassmembers class com.ikunshare.music.manager.DownloadManager$PersistedTask { <fields>; }
+-keepclassmembers class com.ikunshare.music.platform.am.TemariTemplate { native <methods>; }
+-keepclassmembers class com.ikunshare.music.platform.am.AlacNativeTemplate { native <methods>; }

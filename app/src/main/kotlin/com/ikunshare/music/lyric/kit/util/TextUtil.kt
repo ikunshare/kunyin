@@ -50,6 +50,12 @@ object TextUtil {
     private val TIME_REGEXP = Regex("^(?:(?:(\\d+):)?(\\d+):)?(\\d+)(?:\\.(\\d+))?$")
     private val DIGITS_REGEXP = Regex("^\\d+$")
 
+    /** 负数/非法时间统一输出 0：token 连续段（hh、mm 等）坍缩成单个 0。 */
+    private val HOURS_TOKEN = Regex("h+")
+    private val MINUTES_TOKEN = Regex("m+")
+    private val SECONDS_TOKEN = Regex("s+")
+    private val MILLIS_TOKEN = Regex("S+")
+
     /** 右侧补 0 到至少 3 位，再取前 3 位。 */
     private fun parseMilliSecond(content: String): String {
         val padded = content.padEnd(3, '0')
@@ -90,10 +96,10 @@ object TextUtil {
     fun formatTime(time: Long, format: String = "mm:ss.SSS"): String {
         if (time < 0) {
             return format
-                .replace(Regex("h+"), "0")
-                .replace(Regex("m+"), "0")
-                .replace(Regex("s+"), "0")
-                .replace(Regex("S+"), "0")
+                .replace(HOURS_TOKEN, "0")
+                .replace(MINUTES_TOKEN, "0")
+                .replace(SECONDS_TOKEN, "0")
+                .replace(MILLIS_TOKEN, "0")
         }
         val totalSeconds = time / 1000
         val milliSeconds = (time % 1000).toInt()
@@ -106,22 +112,22 @@ object TextUtil {
         var result = format
 
         // hours
-        if (result.contains("hh")) result = result.replace(Regex("hh"), pad(hours, 2))
-        else if (result.contains("h")) result = result.replace(Regex("h"), hours.toString())
+        if (result.contains("hh")) result = result.replace("hh", pad(hours, 2))
+        else if (result.contains("h")) result = result.replace("h", hours.toString())
 
         // minutes
         val totalMinutes = if (!format.contains("h")) hours * 60 + minutes else minutes
-        if (result.contains("mm")) result = result.replace(Regex("mm"), pad(totalMinutes, 2))
-        else if (result.contains("m")) result = result.replace(Regex("m"), totalMinutes.toString())
+        if (result.contains("mm")) result = result.replace("mm", pad(totalMinutes, 2))
+        else if (result.contains("m")) result = result.replace("m", totalMinutes.toString())
 
         // seconds
-        if (result.contains("ss")) result = result.replace(Regex("ss"), pad(seconds, 2))
-        else if (result.contains("s")) result = result.replace(Regex("s"), seconds.toString())
+        if (result.contains("ss")) result = result.replace("ss", pad(seconds, 2))
+        else if (result.contains("s")) result = result.replace("s", seconds.toString())
 
         // milliseconds
-        if (result.contains("SSS")) result = result.replace(Regex("SSS"), pad(milliSeconds, 3))
-        else if (result.contains("SS")) result = result.replace(Regex("SS"), pad(milliSeconds / 10, 2))
-        else if (result.contains("S")) result = result.replace(Regex("S"), (milliSeconds / 100).toString())
+        if (result.contains("SSS")) result = result.replace("SSS", pad(milliSeconds, 3))
+        else if (result.contains("SS")) result = result.replace("SS", pad(milliSeconds / 10, 2))
+        else if (result.contains("S")) result = result.replace("S", (milliSeconds / 100).toString())
 
         return result
     }

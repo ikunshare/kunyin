@@ -1,6 +1,5 @@
 package com.ikunshare.music.ui.components
 
-import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -15,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -82,6 +82,7 @@ fun LiquidSlider(
 
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         val animationScope = rememberCoroutineScope()
+        val currentValue by rememberUpdatedState(value)
         var didDrag by remember { mutableStateOf(false) }
         val dampedDragAnimation = remember(animationScope) {
             DampedDragAnimation(
@@ -104,25 +105,15 @@ fun LiquidSlider(
                         (valueRange.endInclusive - valueRange.start) * (dragAmount.x / trackWidth)
                     val newValue = if (isLtr) (targetValue + delta).coerceIn(valueRange)
                     else (targetValue - delta).coerceIn(valueRange)
-                    Log.d(
-                        "LiquidSlider",
-                        "onDrag: dragAmount.x=${dragAmount.x}, delta=$delta, newValue=$newValue"
-                    )
                     onValueChange(newValue)
                 }
             )
         }
-        LaunchedEffect(dampedDragAnimation, value) {
-            snapshotFlow { value() }
+        LaunchedEffect(dampedDragAnimation) {
+            snapshotFlow { currentValue() }
                 .collectLatest { newValue ->
-                    // 修改这里的逻辑：拖拽时也要更新内部值
                     if (dampedDragAnimation.targetValue != newValue) {
                         dampedDragAnimation.updateValue(newValue)
-                    } else {
-                        Log.d(
-                            "LiquidSlider",
-                            "跳过 updateValue: targetValue等于value=${dampedDragAnimation.targetValue == newValue}"
-                        )
                     }
                 }
         }

@@ -55,7 +55,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
@@ -74,7 +73,9 @@ import com.ikunshare.music.database.LocalMusicStore
 import com.ikunshare.music.manager.MusicRepository
 import com.ikunshare.music.model.MusicItem
 import com.ikunshare.music.model.QueueSource
+import com.ikunshare.music.ui.utils.onPress
 import com.ikunshare.music.ui.utils.rememberPlaylistWriteActions
+import com.ikunshare.music.ui.utils.rememberSelectedKeys
 import com.ikunshare.music.ui.KunyinViewModelFactory
 import com.ikunshare.music.ui.components.AddToPlaylistDialog
 import com.ikunshare.music.ui.components.CreatePlaylistDialog
@@ -157,6 +158,7 @@ fun LocalPlaylistScreen(
     // 多选状态
     var selectionMode by remember { mutableStateOf(false) }
     val selectedSongs = remember { mutableStateListOf<MusicItem>() }
+    val selectedKeys by rememberSelectedKeys(selectedSongs)
 
     // 多选时返回键退出多选
     androidx.activity.compose.BackHandler(enabled = selectionMode) {
@@ -419,16 +421,13 @@ fun LocalPlaylistScreen(
                                 val density = LocalDensity.current
                                 Box(
                                     modifier = Modifier.pointerInput(Unit) {
-                                        awaitPointerEventScope {
-                                            while (true) {
-                                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                                                event.changes.firstOrNull()?.let {
-                                                    menuOffset = with(density) {
-                                                        DpOffset(
-                                                            it.position.x.toDp(),
-                                                            0.dp
-                                                        )
-                                                    }
+                                        onPress { event ->
+                                            event.changes.firstOrNull()?.let {
+                                                menuOffset = with(density) {
+                                                    DpOffset(
+                                                        it.position.x.toDp(),
+                                                        0.dp
+                                                    )
                                                 }
                                             }
                                         }
@@ -451,7 +450,7 @@ fun LocalPlaylistScreen(
                                             }
                                         },
                                         selectionMode = selectionMode,
-                                        selected = selectedSongs.any { it.uniqueKey == song.uniqueKey },
+                                        selected = song.uniqueKey in selectedKeys,
                                         isPlaying = currentSong?.uniqueKey == song.uniqueKey &&
                                                 currentSong.getTypeDiscriminator() == song.getTypeDiscriminator(),
                                         onLongClick = {

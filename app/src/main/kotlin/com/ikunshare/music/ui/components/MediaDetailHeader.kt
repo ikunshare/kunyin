@@ -23,6 +23,7 @@ fun MediaDetailHeader(
     avatar: Boolean = false, actions: @Composable FlowRowScope.() -> Unit
 ) {
     var expanded by rememberSaveable(title, description) { mutableStateOf(false) }
+    val visibleMetadata = remember(metadata) { metadata.filter { it.isNotBlank() } }
     Column(Modifier.fillMaxWidth().padding(16.dp).liquidGlass().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         BoxWithConstraints {
@@ -33,7 +34,7 @@ fun MediaDetailHeader(
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
                         maxLines = 3, overflow = TextOverflow.Ellipsis)
-                    metadata.filter { it.isNotBlank() }.forEach { line ->
+                    visibleMetadata.forEach { line ->
                         Text(line, style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2, overflow = TextOverflow.Ellipsis)

@@ -63,7 +63,7 @@ class AudioCache(
             .build()
     }
 
-    private val maxSizeBytes: Long
+    internal val maxSizeBytes: Long
         get() {
             val mb = appSettingsManager.settings.value.maxCacheSizeMb
             return when {
@@ -255,14 +255,15 @@ class AudioCache(
         if (max == Long.MAX_VALUE) return
 
         val entries = cacheDir.listFiles()?.toMutableList() ?: return
-        var totalSize = entries.sumOf { entrySize(it) }
+        val sizes = entries.associateWith { entrySize(it) }
+        var totalSize = sizes.values.sum()
         if (totalSize <= max) return
 
         entries.sortBy { it.lastModified() }
         for (entry in entries) {
             if (totalSize <= max) break
             if (entry.name == activeKey) continue
-            val size = entrySize(entry)
+            val size = sizes.getValue(entry)
             val deleted = if (entry.isDirectory) entry.deleteRecursively() else entry.delete()
             if (deleted) {
                 totalSize -= size

@@ -34,7 +34,13 @@ import kotlin.math.round
  * - 运动中的词 / 字各自录进小离屏图层，靠图层位移做亚像素平滑上浮（见 [SyllableLayerCache]）
  */
 
-internal class SyllableGlyph(val layout: TextLayoutResult, val x: Float, val width: Float)
+internal class SyllableGlyph(
+    val layout: TextLayoutResult,
+    val x: Float,
+    val width: Float,
+    /** 该字形第一行基线相对其顶部的距离，用于跨字体基线对齐。 */
+    val ascent: Float,
+)
 
 internal class SyllableRoman(
     val layout: TextLayoutResult,
@@ -62,7 +68,10 @@ internal class EmphasizeParams(
 internal class SyllableWord(
     val info: LyricChar,
     val cellX: Float,
+    /** 词框顶部；已按行基线对齐做过纵向偏移。 */
     val cellY: Float,
+    /** 该词第一行基线相对词框顶部的距离。 */
+    val ascent: Float,
     /** 擦除容器（词 + 随词擦除的音译）在 cell 内的 x 与宽度。 */
     val wipeX: Float,
     val wipeWidth: Float,
@@ -132,6 +141,19 @@ private fun TextMeasurer.measureSingle(text: String, style: TextStyle): TextLayo
     measure(text = text, style = style, overflow = TextOverflow.Visible, softWrap = false, maxLines = 1)
 
 /**
+ * 词框顶部到第一行基线的距离。
+ *
+ * 逐字行按词单独测量，拉丁字体（Roboto）与汉字 / 假名后备字体的 ascent 相差近 0.2em，
+ * 若按词框顶部对齐，混排时拉丁文的基线就会浮在汉字上方。取真实基线后按行统一对齐即可消除。
+ * 空串等测不出基线的情况退回 ascent 近似值。
+ */
+private fun TextLayoutResult.baselineOr(style: TextStyle, density: Density): Float {
+    if (lineCount > 0) return getLineBaseline(0)
+    val fontPx = with(density) { style.fontSize.toPx() }
+    return if (fontPx > 0f) fontPx * 0.8f else size.height * 0.8f
+}
+
+/**
  * 构建一行逐字布局（FlowRow 式换行，左/右对齐）。
  *
  * @param maxWidth 可用宽度 px
@@ -170,6 +192,8 @@ internal fun buildSyllableLayout(
         val glyphs: List<SyllableGlyph>?,
         val wordWidth: Float,
         val wordHeight: Float,
+        /** 词框顶部到第一行基线的距离；跨字体混排时按它对齐基线。 */
+        val ascent: Float,
         val romans: List<SyllableRoman>,
         val romanWidth: Float,
         val romanHeight: Float,
@@ -188,24 +212,30 @@ internal fun buildSyllableLayout(
         var glyphs: List<SyllableGlyph>? = null
         var wordWidth: Float
         var wordHeight: Float
+        var wordAscent: Float
         if (stressed) {
             val iterator = graphemeIterator ?: BreakIterator.getCharacterInstance().also { graphemeIterator = it }
             var x = 0f
-            var h = 0f
+            var ascent = 0f
+            var descent = 0f
             val list = splitGraphemes(text, iterator).map { g ->
                 val r = measurer.measureSingle(g, style)
                 val w = r.size.width.toFloat()
-                h = max(h, r.size.height.toFloat())
-                SyllableGlyph(r, x, w).also { x += w }
+                val a = r.baselineOr(style, density)
+                ascent = max(ascent, a)
+                descent = max(descent, r.size.height.toFloat() - a)
+                SyllableGlyph(r, x, w, a).also { x += w }
             }
             glyphs = list
             wordWidth = x
-            wordHeight = h
+            wordAscent = ascent
+            wordHeight = ascent + descent
         } else {
             val r = measurer.measureSingle(text, style)
             layout = r
             wordWidth = r.size.width.toFloat()
             wordHeight = r.size.height.toFloat()
+            wordAscent = r.baselineOr(style, density)
         }
 
         // 逐字音译 token
@@ -251,7 +281,7 @@ internal fun buildSyllableLayout(
             )
         } else null
 
-        pendings.add(Pending(word, layout, glyphs, wordWidth, wordHeight, romans, romanWidth, romanHeight, rides,
+        pendings.add(Pending(word, layout, glyphs, wordWidth, wordHeight, wordAscent, romans, romanWidth, romanHeight, rides,
             cellWidth, wipeWidth, emphasizeParams))
     }
 
@@ -284,14 +314,27 @@ internal fun buildSyllableLayout(
     }
 
     val layoutWidth = rowWidths.maxOrNull() ?: 0f
+    // 版式行高：纯拉丁词的 ascent+descent 小于 lineHeight，需补足到样式行高，
+    // 否则逐字行的行距会比整行歌词（BasicText 走 lineHeight）更紧。
+    val lineHeightPx = style.resolvedLineHeightPx(density)
     val words = ArrayList<SyllableWord>(pendings.size)
     var y = 0f
     for ((r, row) in rows.withIndex()) {
-        var rowHeight = 0f
+        // 行内按真实基线对齐：取最大 ascent 与最大 descent，逐词下移 (rowAscent - ascent)。
+        // 拉丁文与汉字 / 假名后备字体的 ascent 差近 0.2em，按顶部对齐就会出现混排上浮。
+        var rowAscent = 0f
+        var rowDescent = 0f
+        var romanHeight = 0f
         for (i in row) {
             val p = pendings[i]
-            rowHeight = max(rowHeight, p.wordHeight + if (p.romans.isNotEmpty()) p.romanHeight else 0f)
+            rowAscent = max(rowAscent, p.ascent)
+            rowDescent = max(rowDescent, p.wordHeight - p.ascent)
+            if (p.romans.isNotEmpty()) romanHeight = max(romanHeight, p.romanHeight)
         }
+        val textHeight = rowAscent + rowDescent
+        val rowHeight = max(textHeight, lineHeightPx) + romanHeight
+        // 行高补足的部分上下均分，与 lineHeight 默认的居中分配一致
+        val extraTop = max(0f, (lineHeightPx - textHeight) / 2f)
         val shift = if (alignEnd) layoutWidth - rowWidths[r] else 0f
         for (i in row) {
             val p = pendings[i]
@@ -301,7 +344,8 @@ internal fun buildSyllableLayout(
             words.add(SyllableWord(
                 info = p.info,
                 cellX = cellXs[i] + shift,
-                cellY = y,
+                cellY = y + extraTop + (rowAscent - p.ascent),
+                ascent = p.ascent,
                 wipeX = wipeX,
                 wipeWidth = p.wipeWidth,
                 wordX = wordX,
@@ -311,7 +355,9 @@ internal fun buildSyllableLayout(
                 glyphs = p.glyphs,
                 romans = p.romans,
                 romanX = romanX,
-                romanY = p.wordHeight,
+                // 音译贴齐行底线（cellY + p.ascent + rowDescent 对所有词相同），
+                // 不再各自贴词框底，避免混排时音译跟着上下错位
+                romanY = p.ascent + rowDescent,
                 romanWidth = p.romanWidth,
                 romanRidesMask = p.romanRidesMask,
                 floatDelay = (p.info.startTime - lineStart).toFloat(),
@@ -390,8 +436,9 @@ internal fun buildDrawUnits(words: List<SyllableWord>): List<DrawUnit> {
             if (pieces.isNotEmpty()) units.add(DrawUnit(units.size, w, -1, w.cellX, w.cellY, pieces))
         } else {
             for ((gi, g) in glyphs.withIndex()) {
+                // 拆字逐个测量，同样按基线对齐到词的最大 ascent，否则同一词内混排也会错位
                 units.add(DrawUnit(units.size, w, gi, w.cellX + w.wordX + g.x, w.cellY,
-                    listOf(DrawPiece(g.layout, 0f, 0f, wordShift + g.x, g.width))))
+                    listOf(DrawPiece(g.layout, 0f, w.ascent - g.ascent, wordShift + g.x, g.width))))
             }
             if (ride.isNotEmpty()) units.add(DrawUnit(units.size, w, -1, w.cellX, w.cellY, ride))
         }

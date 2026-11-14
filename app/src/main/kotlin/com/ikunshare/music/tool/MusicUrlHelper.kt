@@ -7,7 +7,7 @@ import com.ikunshare.music.model.MusicItem
 import com.ikunshare.music.model.Quality
 import com.ikunshare.music.platform.base.EncryptionInfo
 import com.ikunshare.music.platform.base.MediaInfoResult
-import com.ikunshare.music.platform.joox.JooxMusicItem
+import com.ikunshare.music.platform.am.parseAppleMediaMetadata
 import com.ikunshare.music.platform.kg.KugouMusicItem
 import com.ikunshare.music.platform.qq.QQMusicItem
 import com.ikunshare.music.utils.HTTPUtils
@@ -18,8 +18,8 @@ import com.ikunshare.music.utils.HTTPUtils
  * 接口约定（见原版 kunsound/tool/MusicUrlHelper.kt）：
  * - POST https://c.wwwweb.top/app/getUrl
  * - body: { platform, musicId, quality, authst }
- * - platform 取值：qq / kugou / kuwo / wyy / joox（注意和内部 source 代号 qq/kg/kw/wy/joox 的映射）
- * - musicId：kugou 小写 hash，qq/joox 用 mid，其他用 songId
+ * - platform 取值：qq / kugou / kuwo / wyy（注意和内部 source 代号 qq/kg/kw/wy 的映射）
+ * - musicId：kugou 小写 hash，qq 用 mid，其他用 songId
  * - 响应：code=200 → { url, ekey?, _cacheTTL? }；其他 → { message }
  */
 object MusicUrlHelper {
@@ -32,8 +32,10 @@ object MusicUrlHelper {
         "kg" to "kugou",
         "kw" to "kuwo",
         "wy" to "wyy",
-        "joox" to "joox"
+        "am" to "apple"
     )
+
+    internal fun backendPlatform(sourceId: String): String? = PLATFORM_MAP[sourceId]
 
     fun getMediaInfo(
         sourceId: String,
@@ -41,7 +43,7 @@ object MusicUrlHelper {
         quality: Quality,
         authManager: AuthManager
     ): MediaInfoResult {
-        val platform = PLATFORM_MAP[sourceId]
+        val platform = backendPlatform(sourceId)
             ?: return fail(sourceId, item, quality, "不支持的平台: $sourceId")
 
         val musicId = extractMusicId(platform, item)
@@ -82,6 +84,7 @@ object MusicUrlHelper {
             val encryptionInfo = ekey?.let { EncryptionInfo(isEncrypt = true, ekey = it) }
 
             val ttlSeconds = json.get("_cacheTTL")?.takeIf { !it.isJsonNull }?.asLong ?: 600L
+            val apple = if (sourceId == "am") parseAppleMediaMetadata(json) else null
 
             MediaInfoResult(
                 source = sourceId,
@@ -91,18 +94,25 @@ object MusicUrlHelper {
                 isSuccess = true,
                 quality = quality,
                 musicItem = item,
-                encryptionInfo = encryptionInfo
+                encryptionInfo = encryptionInfo,
+                kind = apple?.kind,
+                adamId = apple?.adamId,
+                keyEndpoint = apple?.keyEndpoint,
+                codec = apple?.codec,
+                audioGroup = apple?.audioGroup,
+                bitrate = apple?.bitrate,
+                sampleRate = apple?.sampleRate,
+                bitDepth = apple?.bitDepth
             )
         } catch (e: Exception) {
             fail(sourceId, item, quality, "解析响应失败: ${e.message}")
         }
     }
 
-    private fun extractMusicId(platform: String, item: MusicItem): String? = when (platform) {
+    internal fun extractMusicId(platform: String, item: MusicItem): String? = when (platform) {
         "qq" -> (item as? QQMusicItem)?.mid
         "kugou" -> (item as? KugouMusicItem)?.hash?.lowercase()
-        "joox" -> (item as? JooxMusicItem)?.mid
-        "kuwo", "wyy" -> item.id.toString()
+        "kuwo", "wyy", "apple" -> item.id.toString()
         else -> null
     }
 

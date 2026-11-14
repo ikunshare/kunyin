@@ -4,6 +4,8 @@ import com.ikunshare.music.utils.tag.flac.FlacHandler
 import com.ikunshare.music.utils.tag.mp3.Mp3Processor
 import com.ikunshare.music.utils.tag.ogg.OggProcessor
 
+import com.ikunshare.music.utils.tag.m4a.M4aTagHandler
+
 object MusicTagger {
     fun read(filePath: String): MusicMeta? {
         val lowerPath = filePath.lowercase()
@@ -11,6 +13,8 @@ object MusicTagger {
             lowerPath.endsWith(".mp3") -> Mp3Processor.read(filePath)
             lowerPath.endsWith(".flac") -> FlacHandler.read(filePath)
             lowerPath.endsWith(".ogg") -> OggProcessor.read(filePath)
+            lowerPath.endsWith(".m4a") || lowerPath.endsWith(".mp4") ->
+                M4aTagHandler.read(filePath)
             else -> null
         }
     }
@@ -21,6 +25,8 @@ object MusicTagger {
             lowerPath.endsWith(".mp3") -> Mp3Processor.write(filePath, meta)
             lowerPath.endsWith(".flac") -> FlacHandler.write(filePath, meta)
             lowerPath.endsWith(".ogg") -> OggProcessor.write(filePath, meta)
+            lowerPath.endsWith(".m4a") || lowerPath.endsWith(".mp4") ->
+                M4aTagHandler.write(filePath, meta)
         }
     }
 

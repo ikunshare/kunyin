@@ -19,6 +19,25 @@ private fun processText(text: String?): List<String> {
     return processed.split(" ").map { it.trim() }.filter { it.isNotEmpty() }
 }
 
+/**
+ * [vendor patch] 整行除分隔符/标点外是否都由歌名、歌手构成。
+ *
+ * 上游把歌名歌手当成普通 rule 交给 exact 阈值（默认 40%）判定，于是歌名恰好是首行一部分的
+ * 真歌词会被整行删掉：[00:20.87]皇后大道西又皇后大道东，11 字里命中歌名「皇后大道东」5 字
+ * = 40% → 首句消失。这里改成「必须整行覆盖」：「歌名 - 歌手」这种头行仍旧剔除，真歌词留下来。
+ */
+private val MUSIC_INFO_RESIDUE_REGEXP = Regex("[\\p{L}\\p{N}]")
+
+private fun isMusicInfoLine(text: String, extra: List<String>): Boolean {
+    var rest = text.lowercase()
+    for (item in extra.sortedByDescending { it.length }) {
+        val token = item.lowercase()
+        if (token.isEmpty()) continue
+        rest = rest.replace(token, "")
+    }
+    return !MUSIC_INFO_RESIDUE_REGEXP.containsMatchIn(rest)
+}
+
 // region Clean
 
 data class PureCleanConfig(
@@ -53,7 +72,11 @@ class PureClean : ParserPlugin() {
                 val e = ArrayList<String>()
                 e.addAll(processText(musicInfo.name ?: ""))
                 musicInfo.singer?.forEach { e.addAll(processText(it)) }
-                extra = e
+                // [vendor patch] 只有整行几乎全由歌名/歌手构成时才交给 matcher，见 isMusicInfoLine
+                if (e.isNotEmpty() && !isMusicInfoLine(Runtime.getLineText(line), e)) {
+                    e.clear()
+                }
+                extra = e.takeIf { it.isNotEmpty() }
             }
             val clean = if (!extra.isNullOrEmpty()) processText(Runtime.getLineText(line)).joinToString("")
             else Runtime.getLineText(line)

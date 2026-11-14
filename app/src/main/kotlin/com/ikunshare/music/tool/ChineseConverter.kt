@@ -5,47 +5,63 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 
 object ChineseConverter {
+    private data class Tables(
+        val tradToSimp: Map<Char, Char>,
+        val simpToTrad: Map<Char, Char>
+    )
 
-    /** 繁→简 查找表 */
-    private lateinit var tradToSimp: Map<Char, Char>
+    private lateinit var appContext: Context
+    private val tableLock = Any()
 
-    /** 简→繁 查找表 */
-    private lateinit var simpToTrad: Map<Char, Char>
+    @Volatile
+    private var tableCache: Tables? = null
 
-    /**
-     * 从 assets/cc/ 加载对照表，Application.onCreate 中调用一次即可。
-     * simp.txt 与 trad.txt 逐行对应，每行一个字。
-     * 若资源缺失则降级为空表，convert() 直接原样返回字符。
-     */
+    /** 注册应用上下文；对照表在首次转换时加载，资源缺失则使用空表。 */
     fun init(context: Context) {
-        val simpChars = runCatching { readLines(context, "cc/simp.txt") }.getOrDefault(emptyList())
-        val tradChars = runCatching { readLines(context, "cc/trad.txt") }.getOrDefault(emptyList())
-        val size = minOf(simpChars.size, tradChars.size)
-
-        val t2s = HashMap<Char, Char>(size)
-        val s2t = HashMap<Char, Char>(size)
-        for (i in 0 until size) {
-            val s = simpChars[i]
-            val t = tradChars[i]
-            if (s.length == 1 && t.length == 1 && s[0] != t[0]) {
-                t2s[t[0]] = s[0]
-                s2t[s[0]] = t[0]
-            }
-        }
-        tradToSimp = t2s
-        simpToTrad = s2t
+        appContext = context.applicationContext
     }
 
-    fun toSimplified(text: String): String = convert(text, tradToSimp)
+    private fun tables(): Tables {
+        tableCache?.let { return it }
+        synchronized(tableLock) {
+            tableCache?.let { return it }
+            val simpChars = runCatching { readLines(appContext, "cc/simp.txt") }.getOrDefault(emptyList())
+            val tradChars = runCatching { readLines(appContext, "cc/trad.txt") }.getOrDefault(emptyList())
+            val size = minOf(simpChars.size, tradChars.size)
+            val t2s = HashMap<Char, Char>(size)
+            val s2t = HashMap<Char, Char>(size)
+            for (i in 0 until size) {
+                val s = simpChars[i]
+                val t = tradChars[i]
+                if (s.length == 1 && t.length == 1 && s[0] != t[0]) {
+                    t2s[t[0]] = s[0]
+                    s2t[s[0]] = t[0]
+                }
+            }
+            val loaded = Tables(t2s, s2t)
+            tableCache = loaded
+            return loaded
+        }
+    }
 
-    fun toTraditional(text: String): String = convert(text, simpToTrad)
+    fun toSimplified(text: String): String = convert(text, tables().tradToSimp)
+
+    fun toTraditional(text: String): String = convert(text, tables().simpToTrad)
 
     private fun convert(text: String, table: Map<Char, Char>): String {
-        val sb = StringBuilder(text.length)
-        for (c in text) {
-            sb.append(table.getOrDefault(c, c))
+        var result: StringBuilder? = null
+        for ((index, char) in text.withIndex()) {
+            val converted = table.getOrDefault(char, char)
+            val builder = result
+            if (builder != null) {
+                builder.append(converted)
+            } else if (converted != char) {
+                result = StringBuilder(text.length)
+                    .append(text, 0, index)
+                    .append(converted)
+            }
         }
-        return sb.toString()
+        return result?.toString() ?: text
     }
 
     private fun readLines(context: Context, assetPath: String): List<String> {

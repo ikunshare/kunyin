@@ -36,6 +36,7 @@ interface SoundMediaPlayer {
     fun getVolume(): Float
     fun setPlaybackSpeed(speed: Float)
     fun getPlaybackSpeed(): Float
+    fun setPlaybackPreservesPitch(preserve: Boolean)
 
     /**
      * 控制耳机/蓝牙断开时是否自动暂停。

@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -65,22 +67,27 @@ class AlbumViewModel(
             albumInfo = previous?.albumInfo ?: cached, songs = previous?.songs.orEmpty(), discs = previous?.discs)
         loadJob = viewModelScope.launch {
             try {
-                try {
-                    val info = repository.getAlbumInfoForSource(source, albumId)
-                    _uiState.update { it.copy(albumInfo = AlbumPreviewCache.merge(info, it.albumInfo)) }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (failure: Exception) {
-                    _uiState.update { it.copy(error = failure.message ?: "专辑信息加载失败") }
-                }
-                val result = repository.getAlbumSongsForSource(source, albumId)
-                val content = withContext(Dispatchers.IO) { albumContent(result.result, result.discs) }
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        songs = content.songs,
-                        discs = content.discs
-                    )
+                coroutineScope {
+                    val infoRequest = async {
+                        try {
+                            val info = repository.getAlbumInfoForSource(source, albumId)
+                            _uiState.update { it.copy(albumInfo = AlbumPreviewCache.merge(info, it.albumInfo)) }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            _uiState.update { it.copy(error = failure.message ?: "专辑信息加载失败") }
+                        }
+                    }
+                    val result = repository.getAlbumSongsForSource(source, albumId)
+                    val content = withContext(Dispatchers.IO) { albumContent(result.result, result.discs) }
+                    infoRequest.await()
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            songs = content.songs,
+                            discs = content.discs
+                        )
+                    }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled

@@ -1,11 +1,13 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
 
 var applicationName = "坤音"
-var verName = "1.0.1"
-var verCode = 1003
+var verName = "1.0.2"
+var verCode = 1020
 
 val signingPropertyNames = listOf(
     "KEYSTORE_STORE_FILE",
@@ -29,8 +31,30 @@ if (suppliedSigningProperties.isNotEmpty() &&
 }
 val hasReleaseSigningConfig = suppliedSigningProperties.size == signingPropertyNames.size
 
+val debugSigningFile = rootProject.file("debug-signing.properties")
+val debugSigningProperties = if (debugSigningFile.exists()) {
+    Properties().apply {
+        debugSigningFile.inputStream().use { load(it) }
+    }
+} else null
+
 android {
     signingConfigs {
+        debugSigningProperties?.let { properties ->
+            val missing = signingPropertyNames.filter { properties.getProperty(it).isNullOrBlank() }
+            if (missing.isNotEmpty()) {
+                throw GradleException(
+                    "Incomplete debug signing configuration in ${debugSigningFile.name}: " +
+                            missing.joinToString()
+                )
+            }
+            getByName("debug") {
+                storeFile = rootProject.file(properties.getProperty("KEYSTORE_STORE_FILE"))
+                storePassword = properties.getProperty("KEYSTORE_PASSWORD")
+                keyAlias = properties.getProperty("KEYSTORE_KEY_ALIAS")
+                keyPassword = properties.getProperty("KEYSTORE_KEY_PASSWORD")
+            }
+        }
         if (hasReleaseSigningConfig) {
             create("release") {
                 storeFile = rootProject.file(
@@ -58,6 +82,7 @@ android {
         targetSdk = 37
         versionName = verName
         versionCode = verCode
+        testInstrumentationRunner = "com.ikunshare.music.platform.am.ApplePlaybackInstrumentation"
         externalNativeBuild {
             cmake {
                 cppFlags += ""
@@ -84,13 +109,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            multiDexEnabled = true
             signingConfig = signingConfigs.findByName("release")
         }
         getByName("debug") {
             isJniDebuggable = true
             isMinifyEnabled = false
-            multiDexEnabled = false
             signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
@@ -108,6 +131,15 @@ android {
     }
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        unitTests.all { test ->
+            test.systemProperty(
+                "java.library.path",
+                file("src/test/resources/native/windows-x86_64").absolutePath
+            )
+        }
+    }
+    sourceSets {
+        getByName("androidTest").assets.directories.add("src/test/resources/temari")
     }
     externalNativeBuild {
         cmake {

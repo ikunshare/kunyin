@@ -13,9 +13,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -355,6 +358,16 @@ internal fun AboutSection() {
         icon = Icons.Filled.Code,
         onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, REPO_URL.toUri())) }
     )
+    var showOssDialog by remember { mutableStateOf(false) }
+    SettingClickableItem(
+        label = "开源许可",
+        value = "共 ${OSS_SECTIONS.sumOf { it.items.size }} 个项目，点击许可证查看全文",
+        icon = Icons.Filled.Description,
+        onClick = { showOssDialog = true }
+    )
+    if (showOssDialog) {
+        OssLicenseDialog(onDismiss = { showOssDialog = false })
+    }
     if (eulaContent.isNotBlank()) {
         SettingClickableItem(
             label = "许可协议",
@@ -570,4 +583,182 @@ private fun AboutTeamRow(logo: Int, name: String, desc: String) {
             )
         }
     }
+}
+
+
+private data class OssProject(
+    val name: String,
+    val url: String,
+    val license: String,
+    val licenseUrl: String,
+    val usage: String? = null
+)
+
+private data class OssSection(val title: String, val items: List<OssProject>)
+
+private val OSS_SECTIONS = listOf(
+    OssSection(
+        title = "内嵌与移植的代码",
+        items = listOf(
+            OssProject(
+                name = "music-lyric-kit",
+                usage = "歌词解析（移植）",
+                url = "https://github.com/music-lyric/music-lyric-kit-node",
+                license = "MIT",
+                licenseUrl = "https://github.com/music-lyric/music-lyric-kit-node/blob/main/LICENSE"
+            ),
+            OssProject(
+                name = "music-lyric-player",
+                usage = "歌词渲染（移植）",
+                url = "https://github.com/music-lyric/music-lyric-player-web",
+                license = "MIT",
+                licenseUrl = "https://github.com/music-lyric/music-lyric-player-web/blob/main/LICENSE"
+            ),
+            OssProject(
+                name = "Apple Music-like Lyrics",
+                usage = "播放页流体渐变背景（移植）",
+                url = "https://github.com/amll-dev/applemusic-like-lyrics",
+                license = "AGPL-3.0",
+                licenseUrl = "https://github.com/amll-dev/applemusic-like-lyrics/blob/main/LICENSE"
+            ),
+            OssProject(
+                name = "LX Music 桌面版",
+                usage = "歌单、榜单、下载与设置交互（移植）",
+                url = "https://github.com/lyswhut/lx-music-desktop",
+                license = "Apache-2.0",
+                licenseUrl = "https://github.com/lyswhut/lx-music-desktop/blob/master/LICENSE"
+            ),
+            OssProject(
+                name = "Temari",
+                usage = "Apple Music 样本解密（原生库）",
+                url = "https://github.com/WorldObservationLog/Temari/tree/85c67622adb339142a1dc22841a09e0b81373694",
+                license = "MIT",
+                licenseUrl = "https://github.com/WorldObservationLog/Temari/blob/85c67622adb339142a1dc22841a09e0b81373694/LICENSE"
+            ),
+            OssProject(
+                name = "FFmpeg",
+                usage = "ALAC 解码（精简原生库，仅 libavcodec + libavutil）",
+                url = "https://ffmpeg.org",
+                license = "LGPL-2.1",
+                licenseUrl = "https://ffmpeg.org/legal.html"
+            )
+        )
+    ),
+    OssSection(
+        title = "Android 组件",
+        items = listOf(
+            OssProject(
+                name = "Kotlin",
+                url = "https://github.com/JetBrains/kotlin",
+                license = "Apache-2.0",
+                licenseUrl = "https://github.com/JetBrains/kotlin/blob/master/license/LICENSE.txt"
+            ),
+            OssProject(
+                name = "AndroidX / Jetpack Compose",
+                url = "https://github.com/androidx/androidx",
+                license = "Apache-2.0",
+                licenseUrl = "https://github.com/androidx/androidx/blob/androidx-main/LICENSE.txt"
+            ),
+            OssProject(
+                name = "Media3",
+                url = "https://github.com/androidx/media",
+                license = "Apache-2.0",
+                licenseUrl = "https://github.com/androidx/media/blob/release/LICENSE"
+            ),
+            OssProject(
+                name = "OkHttp",
+                url = "https://github.com/square/okhttp",
+                license = "Apache-2.0",
+                licenseUrl = "https://github.com/square/okhttp/blob/master/LICENSE.txt"
+            ),
+            OssProject(
+                name = "Gson",
+                url = "https://github.com/google/gson",
+                license = "Apache-2.0",
+                licenseUrl = "https://github.com/google/gson/blob/main/LICENSE"
+            ),
+            OssProject(
+                name = "Coil",
+                url = "https://github.com/coil-kt/coil",
+                license = "Apache-2.0",
+                licenseUrl = "https://github.com/coil-kt/coil/blob/main/LICENSE"
+            ),
+            OssProject(
+                name = "ZXing",
+                url = "https://github.com/zxing/zxing",
+                license = "Apache-2.0",
+                licenseUrl = "https://github.com/zxing/zxing/blob/master/LICENSE"
+            )
+        )
+    )
+)
+
+@Composable
+private fun OssLicenseDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    fun openLink(url: String) {
+        if (runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+        }.isFailure) {
+            Toast.makeText(context, "无法打开链接", Toast.LENGTH_SHORT).show()
+        }
+    }
+    GlassAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("开源许可") },
+        text = {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OSS_SECTIONS.forEach { section ->
+                    item(key = "section_${section.title}") {
+                        Text(
+                            section.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                    items(section.items, key = { it.name }) { project ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .padding(start = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(
+                                modifier = Modifier.weight(1f)
+                                    .clickable { openLink(project.url) }
+                                    .padding(vertical = 10.dp)
+                            ) {
+                                Text(
+                                    project.name,
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                project.usage?.let {
+                                    Text(
+                                        it,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            TextButton(onClick = { openLink(project.licenseUrl) }) {
+                                Text(project.license, textAlign = TextAlign.End)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        }
+    )
 }

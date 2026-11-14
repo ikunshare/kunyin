@@ -78,7 +78,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -111,7 +110,9 @@ import com.ikunshare.music.model.QueueSource
 import com.ikunshare.music.model.UserInfo
 import com.ikunshare.music.model.neteaseCoverUrl
 import com.ikunshare.music.platform.base.PlayListInfoResult
+import com.ikunshare.music.ui.utils.onPress
 import com.ikunshare.music.ui.utils.rememberPlaylistWriteActions
+import com.ikunshare.music.ui.utils.rememberSelectedKeys
 import com.ikunshare.music.ui.KunyinViewModelFactory
 import com.ikunshare.music.ui.components.AddToPlaylistDialog
 import com.ikunshare.music.ui.components.CreatePlaylistDialog
@@ -129,6 +130,8 @@ import com.ikunshare.music.ui.components.SongContextMenu
 import com.ikunshare.music.ui.screens.player.PlayerViewModel
 import com.ikunshare.music.ui.utils.LocalScrollOffsetReporter
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -397,6 +400,7 @@ private fun WidePlaylistsLayout(
     // 多选状态
     var selectionMode by remember { mutableStateOf(false) }
     val selectedSongs = remember { mutableStateListOf<MusicItem>() }
+    val selectedKeys by rememberSelectedKeys(selectedSongs)
 
     // 多选时返回键退出多选
     androidx.activity.compose.BackHandler(enabled = selectionMode) {
@@ -655,16 +659,13 @@ private fun WidePlaylistsLayout(
                             val density = LocalDensity.current
                             Box(
                                 modifier = Modifier.pointerInput(Unit) {
-                                    awaitPointerEventScope {
-                                        while (true) {
-                                            val event = awaitPointerEvent(PointerEventPass.Initial)
-                                            event.changes.firstOrNull()?.let {
-                                                menuOffset = with(density) {
-                                                    DpOffset(
-                                                        it.position.x.toDp(),
-                                                        0.dp
-                                                    )
-                                                }
+                                    onPress { event ->
+                                        event.changes.firstOrNull()?.let {
+                                            menuOffset = with(density) {
+                                                DpOffset(
+                                                    it.position.x.toDp(),
+                                                    0.dp
+                                                )
                                             }
                                         }
                                     }
@@ -687,7 +688,7 @@ private fun WidePlaylistsLayout(
                                         }
                                     },
                                     selectionMode = selectionMode,
-                                    selected = selectedSongs.any { it.uniqueKey == song.uniqueKey },
+                                    selected = song.uniqueKey in selectedKeys,
                                     isPlaying = currentSong?.uniqueKey == song.uniqueKey &&
                                             currentSong.getTypeDiscriminator() == song.getTypeDiscriminator(),
                                     onLongClick = {
@@ -1578,6 +1579,7 @@ class PlaylistsViewModel(
 
     private val _platformSections = MutableStateFlow<List<PlatformSection>>(emptyList())
     val platformSections: StateFlow<List<PlatformSection>> = _platformSections.asStateFlow()
+    private val refreshingSources = mutableSetOf<String>()
 
     companion object {
         private const val TAG = "PlaylistsViewModel"
@@ -1655,46 +1657,57 @@ class PlaylistsViewModel(
     }
 
     fun refreshPlatform(source: String) {
+        if (!refreshingSources.add(source)) return
         viewModelScope.launch {
-            // 记住刷新前是否已有缓存数据
-            val hadExistingData = _platformSections.value.any { it.source == source }
-
-            // 设置 loading
-            updateSection(source) { it.copy(isLoading = true) }
-            // 如果该平台不在列表中，先添加
-            if (!hadExistingData) {
-                _platformSections.value += PlatformSection(
-                    source = source,
-                    displayName = platformName(source),
-                    userInfo = platformPlaylistStore.getUserInfo(source),
-                    playlists = platformPlaylistStore.getPlaylists(source),
-                    isLoading = true
-                )
-            }
-
             try {
-                // 先获取用户信息
-                val userInfo = repository.getUserInfoForSource(source)
-                if (userInfo != null) {
-                    platformPlaylistStore.saveUserInfo(source, userInfo)
-                    updateSection(source) { it.copy(userInfo = userInfo) }
-                }
+                // 记住刷新前是否已有缓存数据
+                val hadExistingData = _platformSections.value.any { it.source == source }
 
-                // 再获取歌单列表
-                val playlists = repository.getUserPlaylistForSource(source)
-                platformPlaylistStore.savePlaylists(source, playlists)
-                // 歌单列表变化，清除旧的歌曲缓存
-                platformPlaylistStore.clearSongs(source)
-                updateSection(source) { it.copy(playlists = playlists, isLoading = false) }
-
-                // 仅首次加载时，如果用户信息和歌单都为空，移除空 section
-                if (!hadExistingData && userInfo == null && playlists.isEmpty()) {
-                    _platformSections.value = _platformSections.value.filter { it.source != source }
+                // 设置 loading
+                updateSection(source) { it.copy(isLoading = true) }
+                // 如果该平台不在列表中，先添加
+                if (!hadExistingData) {
+                    _platformSections.value += PlatformSection(
+                        source = source,
+                        displayName = platformName(source),
+                        userInfo = platformPlaylistStore.getUserInfo(source),
+                        playlists = platformPlaylistStore.getPlaylists(source),
+                        isLoading = true
+                    )
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to refresh platform $source", e)
-                // 刷新失败：保留已有数据，仅停止 loading
-                updateSection(source) { it.copy(isLoading = false) }
+                val previousSection = _platformSections.value.firstOrNull { it.source == source }
+                val previousPlaylists = previousSection?.playlists.orEmpty()
+                val previousUserInfo = previousSection?.userInfo
+
+                try {
+                    val (userInfo, playlists) = coroutineScope {
+                        val userInfoRequest = async { repository.getUserInfoForSource(source) }
+                        val playlistsRequest = async { repository.getUserPlaylistForSource(source) }
+                        userInfoRequest.await() to playlistsRequest.await()
+                    }
+                    if (userInfo != null && userInfo != previousUserInfo) {
+                        platformPlaylistStore.saveUserInfo(source, userInfo)
+                        updateSection(source) { it.copy(userInfo = userInfo) }
+                    }
+
+                    if (playlists != previousPlaylists) {
+                        platformPlaylistStore.savePlaylists(source, playlists)
+                        // 歌单列表变化，清除旧的歌曲缓存
+                        platformPlaylistStore.clearSongs(source)
+                    }
+                    updateSection(source) { it.copy(playlists = playlists, isLoading = false) }
+
+                    // 仅首次加载时，如果用户信息和歌单都为空，移除空 section
+                    if (!hadExistingData && userInfo == null && playlists.isEmpty()) {
+                        _platformSections.value = _platformSections.value.filter { it.source != source }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to refresh platform $source", e)
+                    // 刷新失败：保留已有数据，仅停止 loading
+                    updateSection(source) { it.copy(isLoading = false) }
+                }
+            } finally {
+                refreshingSources.remove(source)
             }
         }
     }

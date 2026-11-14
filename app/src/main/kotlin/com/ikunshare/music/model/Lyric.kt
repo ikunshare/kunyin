@@ -6,9 +6,10 @@ data class Lyric(
     val roma: String = "",   // 音译歌词
     val char: String = "",   // 逐字歌词
     val chroma: String = "", // 音译逐字歌词
-    val phonetic: String = "" // AI 谐音（中文注音）
+    val phonetic: String = "", // AI 谐音（中文注音）
+    val ttml: String = "" // 原始 TTML（Apple Music）
 ) {
     fun isEmpty(): Boolean =
         lrc.isEmpty() && trans.isEmpty() && roma.isEmpty()
-                && char.isEmpty() && chroma.isEmpty() && phonetic.isEmpty()
+                && char.isEmpty() && chroma.isEmpty() && phonetic.isEmpty() && ttml.isEmpty()
 }

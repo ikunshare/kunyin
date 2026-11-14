@@ -31,9 +31,11 @@ add_link_options(
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--gc-sections -Wl,--icf=all -Wl,-s")
 
 # 2. 包含头文件路径
-include_directories(${CMAKE_SOURCE_DIR}/Lrc ${CMAKE_SOURCE_DIR}/MflacCrypto)
+include_directories(${CMAKE_SOURCE_DIR}/Lrc ${CMAKE_SOURCE_DIR}/MflacCrypto ${CMAKE_SOURCE_DIR}/temari ${CMAKE_SOURCE_DIR}/alac ${CMAKE_SOURCE_DIR}/ffmpeg/include)
 
 # 3. 最后添加子目录（此时它们会继承上面的优化参数）
 add_subdirectory(Lrc)
 add_subdirectory(MflacCrypto)
+add_subdirectory(temari)
+add_subdirectory(alac)
 

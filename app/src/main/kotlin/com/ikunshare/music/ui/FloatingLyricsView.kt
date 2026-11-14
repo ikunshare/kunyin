@@ -120,6 +120,8 @@ class FloatingLyricsView(context: Context) : View(context) {
     private var cachedCharacters: List<com.ikunshare.music.model.LyricChar>? = null
     private var cachedCharacterText: String? = null
     private var cachedCharacterOffsets: IntArray? = null
+    private var cachedRomanizationLine: LyricLine? = null
+    private var cachedRomanizationText: String? = null
     private val karaokeClipPath = Path()
 
     // ── 触摸 ──
@@ -163,10 +165,23 @@ class FloatingLyricsView(context: Context) : View(context) {
     private fun dp(value: Float): Float =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, resources.displayMetrics)
 
+    private fun resolveRomanizationText(line: LyricLine): String? {
+        if (cachedRomanizationLine !== line) {
+            cachedRomanizationLine = line
+            cachedRomanizationText = line.romanization
+                ?: line.charRomanization?.joinToString("") { it.char }
+        }
+        return cachedRomanizationText
+    }
+
     // ── 公开接口 ──
 
     fun updateLyricData(line: LyricLine?, position: Long, playing: Boolean, rate: Float) {
+        val lineChanged = line !== currentLine
         val textChanged = line?.text != currentLine?.text
+        val positionChanged = position != basePosition
+        val playingChanged = playing != isPlaying
+        val rateChanged = rate != playbackRate
         currentLine = line
         basePosition = position
         baseNanoTime = System.nanoTime()
@@ -178,7 +193,13 @@ class FloatingLyricsView(context: Context) : View(context) {
         }
 
         updateChoreographer()
-        invalidate()
+        val hasDynamicProgress = showKaraoke && (line?.hasCharLyrics == true ||
+            (showRomanization && line?.hasCharRomanization == true))
+        val positionNeedsDraw = hasDynamicProgress && isScreenOn && positionChanged
+        if (!choreographerRunning &&
+            (lineChanged || playingChanged || rateChanged || positionNeedsDraw)) {
+            invalidate()
+        }
     }
 
     fun setAlignment(align: String) {
@@ -309,8 +330,7 @@ class FloatingLyricsView(context: Context) : View(context) {
         if (showTranslation && line.hasTranslation) {
             totalHeight += lineSpacing + getTransLayout(line.translation!!, contentWidth).height
         }
-        val romanizationText =
-            line.romanization ?: line.charRomanization?.joinToString("") { it.char }
+        val romanizationText = resolveRomanizationText(line)
         if (showRomanization && !romanizationText.isNullOrBlank()) {
             totalHeight += lineSpacing + getRomanLayout(romanizationText, contentWidth).height
         }
@@ -350,8 +370,7 @@ class FloatingLyricsView(context: Context) : View(context) {
                 contentWidth
             ).also { totalHeight += lineSpacing + it.height }
         } else null
-        val romanizationText =
-            line.romanization ?: line.charRomanization?.joinToString("") { it.char }
+        val romanizationText = resolveRomanizationText(line)
         val romanLayout = if (showRomanization && !romanizationText.isNullOrBlank()) {
             getRomanLayout(
                 romanizationText,

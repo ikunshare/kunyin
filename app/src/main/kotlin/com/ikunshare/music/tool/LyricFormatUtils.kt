@@ -8,6 +8,8 @@ object LyricFormatUtils {
     private val META_LINE = Regex("""^\[[a-zA-Z]+:.*]$""")
     private val FIRST_TIME = Regex("""^\[(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?]""")
     private val ANY_TIME = Regex("""[<\[](\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?[>\]]""")
+    private val MILLIS_PRECISION = Regex("""(\d{2}:\d{2})\.(\d{3})""")
+    private val LAST_TIME_TAG = Regex("""\[(\d{2}:\d{2}\.\d{2,3})]$""")
 
     private data class TimedLine(val timestamp: Long, val raw: String)
     private data class Parsed(val meta: List<String>, val lines: List<TimedLine>)
@@ -36,13 +38,15 @@ object LyricFormatUtils {
         // 元数据：主词 → 翻译 → 音译，按出现顺序去重
         (main.meta + trans.meta + roma.meta).distinct().forEach { out += it }
 
+        val transExact = indexByTimestamp(trans.lines)
+        val romaExact = indexByTimestamp(roma.lines)
         val sortedMain = main.lines.sortedBy { it.timestamp }
         for ((i, entry) in sortedMain.withIndex()) {
             out += entry.raw
-            findText(trans.lines, entry.timestamp)?.let {
+            findText(trans.lines, transExact, entry.timestamp)?.let {
                 out += formatTimestamp(entry.timestamp, twoDigit) + it
             }
-            findText(roma.lines, entry.timestamp)?.let {
+            findText(roma.lines, romaExact, entry.timestamp)?.let {
                 out += formatTimestamp(entry.timestamp, twoDigit) + it
             }
 
@@ -62,8 +66,7 @@ object LyricFormatUtils {
         convertLastBracketToAngle(convertTo10msPrecision(lrc))
 
     private fun convertTo10msPrecision(lrc: String): String {
-        val regex = Regex("""(\d{2}:\d{2})\.(\d{3})""")
-        return regex.replace(lrc) { match ->
+        return MILLIS_PRECISION.replace(lrc) { match ->
             val prefix = match.groupValues[1]
             val ms3 = match.groupValues[2].toInt()
             val ms2 = (ms3 + 5) / 10
@@ -73,9 +76,8 @@ object LyricFormatUtils {
     }
 
     private fun convertLastBracketToAngle(lrc: String): String {
-        val lineRegex = Regex("""\[(\d{2}:\d{2}\.\d{2,3})]$""")
         return lrc.lines().joinToString("\n") { line ->
-            lineRegex.replace(line) { "<${it.groupValues[1]}>" }
+            LAST_TIME_TAG.replace(line) { "<${it.groupValues[1]}>" }
         }
     }
 
@@ -115,9 +117,9 @@ object LyricFormatUtils {
     }
 
     private fun lineEnd(line: String): Long? =
-        ANY_TIME.findAll(line).map {
+        ANY_TIME.findAll(line).maxOfOrNull {
             parseTime(it.groupValues[1], it.groupValues[2], it.groupValues[3])
-        }.toList().maxOrNull()
+        }
 
     private fun stripLeadingTags(line: String): String {
         var s = line
@@ -129,11 +131,18 @@ object LyricFormatUtils {
         return s.trim()
     }
 
-    private fun findText(lines: List<TimedLine>, ts: Long): String? {
+    private fun indexByTimestamp(lines: List<TimedLine>): Map<Long, TimedLine> = buildMap {
+        for (line in lines) {
+            if (!containsKey(line.timestamp)) put(line.timestamp, line)
+        }
+    }
+
+    private fun findText(
+        lines: List<TimedLine>, exactMatches: Map<Long, TimedLine>, ts: Long
+    ): String? {
         if (lines.isEmpty()) return null
-        val tol = 100L
-        val match = lines.firstOrNull { it.timestamp == ts }
-            ?: lines.firstOrNull { abs(it.timestamp - ts) <= tol }
+        val match = exactMatches[ts]
+            ?: lines.firstOrNull { abs(it.timestamp - ts) <= 100L }
             ?: return null
         val text = stripLeadingTags(match.raw)
         return text.takeIf { it.isNotBlank() }
@@ -146,14 +155,14 @@ object LyricFormatUtils {
     }
 
     private fun formatTimestamp(ms: Long, twoDigit: Boolean): String {
-        val min = ms / 60000
-        val sec = (ms % 60000) / 1000
-        return if (twoDigit) {
-            val frac = ((ms % 1000) + 5) / 10
-            "[%02d:%02d.%02d]".format(min, sec, frac.coerceAtMost(99))
+        val min = (ms / 60000).toString().padStart(2, '0')
+        val sec = ((ms % 60000) / 1000).toString().padStart(2, '0')
+        val fraction = if (twoDigit) {
+            (((ms % 1000) + 5) / 10).coerceAtMost(99)
         } else {
-            val frac = ms % 1000
-            "[%02d:%02d.%03d]".format(min, sec, frac)
+            ms % 1000
         }
+        val fractionText = fraction.toString().padStart(if (twoDigit) 2 else 3, '0')
+        return "[$min:$sec.$fractionText]"
     }
 }

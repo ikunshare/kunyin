@@ -10,7 +10,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SelectAll
@@ -26,7 +25,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavController
 import com.ikunshare.music.model.MusicItem
 import com.ikunshare.music.manager.discovery.ChartInfo
 import com.ikunshare.music.ui.KunyinViewModelFactory
@@ -40,7 +38,11 @@ import kotlinx.coroutines.flow.map
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun ChartsScreen(navController: NavController, player: PlayerViewModel, factory: KunyinViewModelFactory) {
+fun ChartsScreen(
+    player: PlayerViewModel,
+    factory: KunyinViewModelFactory,
+    header: (@Composable () -> Unit)? = null
+) {
     val playerSheet = LocalPlayerSheet.current
     val vm: ChartsViewModel = viewModel(factory = factory)
     val state by vm.uiState.collectAsState()
@@ -100,20 +102,26 @@ fun ChartsScreen(navController: NavController, player: PlayerViewModel, factory:
     LiquidGlassScene(cover = state.board?.cover) {
         Scaffold(containerColor = Color.Transparent,
             topBar = {
-                GlassTopBar(title = { Text(if (selected.isEmpty()) "排行榜" else "已选择 ${selected.size} 首") },
-                    navigationIcon = {
-                        GlassIconButton(onClick = { if (selected.isNotEmpty()) selected.clear() else navController.popBackStack() }, enabled = !writes.isWriting) {
-                            Icon(if (selected.isEmpty()) Icons.AutoMirrored.Filled.ArrowBack else Icons.Filled.Close, "返回")
-                        }
-                    }, actions = {
-                        if (selected.isNotEmpty()) GlassIconButton(onClick = {
-                            if (selected.size == state.songs.size) selected.clear()
-                            else { selected.clear(); selected.addAll(state.songs) }
-                        }, enabled = !writes.isWriting) { Icon(Icons.Filled.SelectAll, "全选") }
-                        else GlassIconButton(onClick = vm::refreshCatalog, enabled = !state.boardsLoading && !writes.isWriting) {
-                            Icon(Icons.Filled.Refresh, "刷新榜单")
-                        }
-                    })
+                Column(Modifier.windowInsetsPadding(TopAppBarDefaults.windowInsets).padding(vertical = 6.dp)) {
+                    header?.invoke()
+                    // 未进入多选时不画标题栏：榜单名在下方已有一行，重复只会挤占列表高度。
+                    if (selected.isNotEmpty()) {
+                        GlassTopBar(
+                            title = { Text("已选择 ${selected.size} 首") },
+                            navigationIcon = {
+                                GlassIconButton(onClick = { selected.clear() }, enabled = !writes.isWriting) {
+                                    Icon(Icons.Filled.Close, "返回")
+                                }
+                            },
+                            actions = {
+                                GlassIconButton(onClick = {
+                                    if (selected.size == state.songs.size) selected.clear()
+                                    else { selected.clear(); selected.addAll(state.songs) }
+                                }, enabled = !writes.isWriting) { Icon(Icons.Filled.SelectAll, "全选") }
+                            }
+                        )
+                    }
+                }
             }, bottomBar = {
                 if (selected.isNotEmpty()) SelectionBottomBar(selected.size,
                     onDownload = { download = selected.toList() }, onAddToPlaylist = { addSongs = selected.toList() },

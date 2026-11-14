@@ -28,16 +28,23 @@ class DiskCache<V : Any>(
 ) : Cache<String, V> {
 
     private val map = LinkedHashMap<String, V>(16, 0.75f, true)
+    private var loaded = false
 
-    init {
+    private fun ensureLoaded() {
+        if (loaded) return
         loadFromDisk()
+        loaded = true
     }
 
     @Synchronized
-    override fun get(key: String): V? = map[key]
+    override fun get(key: String): V? {
+        ensureLoaded()
+        return map[key]
+    }
 
     @Synchronized
     override fun put(key: String, value: V) {
+        ensureLoaded()
         map[key] = value
         trimToSize()
         saveToDisk()
@@ -46,6 +53,7 @@ class DiskCache<V : Any>(
     /** Persist a provider batch once, rather than rewriting the entire cache for every row. */
     @Synchronized
     fun putAll(values: Map<String, V>) {
+        ensureLoaded()
         map.putAll(values)
         trimToSize()
         saveToDisk()
@@ -53,17 +61,22 @@ class DiskCache<V : Any>(
 
     @Synchronized
     override fun remove(key: String) {
+        ensureLoaded()
         if (map.remove(key) != null) saveToDisk()
     }
 
     @Synchronized
     override fun clear() {
+        loaded = true
         map.clear()
         cacheFile.delete()
     }
 
     @Synchronized
-    override fun size(): Int = map.size
+    override fun size(): Int {
+        ensureLoaded()
+        return map.size
+    }
 
     private fun trimToSize() {
         val it = map.entries.iterator()
